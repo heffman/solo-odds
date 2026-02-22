@@ -113,6 +113,12 @@
         "block_reward": {
           "type": "number",
           "minimum": 0
+        },
+        "source": {
+          "type": ["string", "null"]
+        },
+        "source_url": {
+          "type": ["string", "null"]
         }
       }
     },

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -64,6 +63,7 @@ def fetch_btc_snapshot(*, timeout_s: float = 10.0) -> NetworkSnapshot:
         blocks_per_day=blocks_per_day,
         block_reward=reward_btc,
         source="blockchain.com query api",
+        source_url=base,
     )
 
 
@@ -74,7 +74,17 @@ def _pick_first(d: Dict[str, Any], *keys: str) -> Optional[Any]:
     return None
 
 
-def fetch_bch_snapshot(*, timeout_s: float = 10.0) -> NetworkSnapshot:
+def _hashrate_from_difficulty(difficulty: float, *, target_block_time_s: float) -> float:
+    """
+    Expected hashes per block ≈ difficulty * 2^32
+    Hashrate ≈ expected_hashes_per_block / target_block_time
+    """
+    if target_block_time_s <= 0:
+        raise FetchError(f"Bad target_block_time_s={target_block_time_s!r}")
+    return float(difficulty) * 4294967296.0 / float(target_block_time_s)
+
+
+def _fetch_bch_blockchair(*, timeout_s: float) -> NetworkSnapshot:
     """
     BCH snapshot using Blockchair stats JSON.
 
@@ -143,7 +153,42 @@ def fetch_bch_snapshot(*, timeout_s: float = 10.0) -> NetworkSnapshot:
         blocks_per_day=blocks_per_day,
         block_reward=block_reward,
         source="blockchair stats (plus fallback reward if missing)",
+        source_url=url,
     )
+
+
+def _fetch_bch_fullstack(*, timeout_s: float) -> NetworkSnapshot:
+    """
+    Fallback BCH provider: FullStack.cash getDifficulty (difficulty only).
+    Hashrate is derived from difficulty assuming 600s target.
+    """
+    difficulty_url = "https://api.fullstack.cash/v5/blockchain/getDifficulty"
+    difficulty = float(_get_text(difficulty_url, timeout_s=timeout_s))
+
+    network_hashrate_hs = _hashrate_from_difficulty(difficulty, target_block_time_s=600.0)
+
+    return NetworkSnapshot(
+        coin="bch",
+        timestamp=_now_utc(),
+        network_hashrate_hs=network_hashrate_hs,
+        difficulty=float(difficulty),
+        blocks_per_day=144.0,
+        block_reward=3.125,
+        source="fullstack.cash getDifficulty (hashrate derived)",
+        source_url=difficulty_url,
+    )
+ 
+
+def fetch_bch_snapshot(*, timeout_s: float = 10.0) -> NetworkSnapshot:
+    """
+    BCH snapshot with fallback:
+      1) Blockchair (difficulty + hashrate)
+      2) FullStack.cash getDifficulty (difficulty only; hashrate derived)
+    """
+    try:
+        return _fetch_bch_blockchair(timeout_s=timeout_s)
+    except FetchError:
+        return _fetch_bch_fullstack(timeout_s=timeout_s)
 
 
 def fetch_snapshot(coin: str, *, timeout_s: float = 10.0) -> NetworkSnapshot:

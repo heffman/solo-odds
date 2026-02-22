@@ -71,6 +71,7 @@ class NetworkSnapshot:
     blocks_per_day: float
     block_reward: float
     source: Optional[str] = None  # e.g., 'mempool.space', 'blockchair', etc.
+    source_url: Optional[str] = None  # e.g., 'https://api.blockchair.com/...'
 
     def __post_init__(self) -> None:
         coin_norm = _require_non_empty_str('coin', self.coin).lower()
@@ -90,6 +91,8 @@ class NetworkSnapshot:
 
         if self.source is not None and not isinstance(self.source, str):
             raise SnapshotValidationError('source must be a string or null')
+        if self.source_url is not None and not isinstance(self.source_url, str):
+            raise SnapshotValidationError('source_url must be a string or null')
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -100,6 +103,7 @@ class NetworkSnapshot:
             'blocks_per_day': float(self.blocks_per_day),
             'block_reward': float(self.block_reward),
             'source': self.source,
+            'source_url': self.source_url,
         }
 
     @classmethod
@@ -126,4 +130,5 @@ class NetworkSnapshot:
                 'block_reward', data.get('block_reward', float('nan'))
             ),
             source=data.get('source'),
+            source_url=data.get('source_url'),
         )

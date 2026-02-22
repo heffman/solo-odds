@@ -40,6 +40,8 @@ def _network_snapshot_to_report(snapshot) -> Dict[str, Any]:
         "difficulty": d["difficulty"],
         "blocks_per_day": d["blocks_per_day"],
         "block_reward": d["block_reward"],
+        "source": d.get("source"),
+        "source_url": d.get("source_url"),
     }
 
 
@@ -72,6 +74,8 @@ def _render_text(coin: str, hashrate_display: str, days: int, report: Dict[str, 
         f"  difficulty:       {snap['difficulty']:.6g}",
         f"  blocks/day:       {snap['blocks_per_day']:.6g}",
         f"  block_reward:     {snap['block_reward']:.6g}",
+        f"  source:           {snap.get('source') or ''}",
+        f"  source_url:       {snap.get('source_url') or ''}",
         "",
         "Analytic (Poisson)",
         f"  lambda/day:       {analytic['lambda_per_day']:.6g}",
