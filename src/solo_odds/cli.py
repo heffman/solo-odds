@@ -8,6 +8,7 @@ import typer
 
 from solo_odds.data.store import SnapshotStore, SnapshotStoreError
 from solo_odds.data.fetch import FetchError, fetch_snapshot
+from solo_odds.sim.monte_carlo import MonteCarloError, run_monte_carlo
 from solo_odds.math.analytic import (
     AnalyticError,
     RateSegment,
@@ -192,6 +193,21 @@ def odds(
         typer.echo(f"Analytic error: {exc}", err=True)
         raise typer.Exit(code=2)
 
+    mc_block: Dict[str, Any] = {"enabled": False}
+    if mc and mc > 0:
+        try:
+            mc_res = run_monte_carlo(segments=segments, runs=int(mc))
+        except MonteCarloError as exc:
+            typer.echo(f"Monte Carlo error: {exc}", err=True)
+            raise typer.Exit(code=2)
+
+        mc_block = {
+            "enabled": True,
+            "runs": mc_res.runs,
+            "blocks_over_horizon": mc_res.blocks_over_horizon,
+            "time_to_first_block_days": mc_res.time_to_first_block_days,
+        }
+
     report: Dict[str, Any] = {
         "schema_version": 1,
         "generated_at": _now_utc_iso(),
@@ -212,7 +228,7 @@ def odds(
         },
         "network_snapshot": _network_snapshot_to_report(snapshot),
         "analytic": _analytic_to_report(analytic_res),
-        "monte_carlo": {"enabled": False},
+        "monte_carlo": mc_block,
         "notes": [
             "Block counts use a Poisson model with integrated intensity over the horizon.",
             "Time-to-first-block uses an effective constant-rate approximation when drift is enabled.",
