@@ -1,0 +1,13 @@
+[Unit]
+Description=Solo Odds Web
+After=network.target
+
+[Service]
+User=jeff
+WorkingDirectory=/home/jeff/sandbox/solo-odds
+Environment=SOLO_ODDS_SECRET=replace-with-long-random
+ExecStart=/home/jeff/sandbox/solo-odds/.venv/bin/uvicorn web.app:app --host 127.0.0.1 --port 8080
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

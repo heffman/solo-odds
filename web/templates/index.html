@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Solo Odds</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    label { display:block; font-size: 0.9rem; margin-bottom: 0.25rem; }
+    input, select { padding: 0.5rem; min-width: 220px; }
+    button { padding: 0.6rem 1rem; }
+    .card { border: 1px solid #ddd; padding: 1rem; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Solo Odds</h1>
+  <p>Generate a signed, shareable link for a solo mining odds report.</p>
+
+  <form method="post" action="/share" class="card">
+    <div class="row">
+      <div>
+        <label>Coin</label>
+        <select name="coin">
+          <option value="btc" {% if defaults.coin == 'btc' %}selected{% endif %}>BTC</option>
+          <option value="bch" {% if defaults.coin == 'bch' %}selected{% endif %}>BCH</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Hashrate</label>
+        <input name="hashrate" value="{{ defaults.hashrate }}">
+      </div>
+
+      <div>
+        <label>Days</label>
+        <input name="days" type="number" value="{{ defaults.days }}">
+      </div>
+
+      <div>
+        <label>Curve interval (days)</label>
+        <input name="interval_days" type="number" value="{{ defaults.interval_days }}">
+      </div>
+
+      <div>
+        <label>Drift</label>
+        <select name="drift">
+          <option value="flat" {% if defaults.drift == 'flat' %}selected{% endif %}>flat</option>
+          <option value="step" {% if defaults.drift == 'step' %}selected{% endif %}>step</option>
+          <option value="linear" {% if defaults.drift == 'linear' %}selected{% endif %}>linear</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Step %</label>
+        <input name="step_pct" type="number" step="0.01" value="{{ defaults.step_pct }}">
+      </div>
+
+      <div>
+        <label>Step days</label>
+        <input name="step_days" type="number" value="{{ defaults.step_days }}">
+      </div>
+
+      <div>
+        <label>Daily %</label>
+        <input name="daily_pct" type="number" step="0.01" value="{{ defaults.daily_pct }}">
+      </div>
+
+      <div>
+        <label>Monte Carlo runs</label>
+        <input name="mc" type="number" value="{{ defaults.mc }}">
+      </div>
+    </div>
+
+    <div style="margin-top:1rem;">
+      <button type="submit">Generate share link</button>
+    </div>
+  </form>
+</body>
+</html>

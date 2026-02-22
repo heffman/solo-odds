@@ -1,0 +1,23 @@
+Web install notes for vps:
+
+install solo-odds-web.service to /etc/systemd/system directory
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now solo-odds-web
+sudo systemctl status solo-odds-web
+
+
+nginx config snippet: 
+
+location / {
+  proxy_pass http://127.0.0.1:8080;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+add this to the crontab:
+
+0 */6 * * * /home/jeff/sandbox/solo-odds/.venv/bin/solo-odds refresh --coin bch >/dev/null 2>&1
+0 */6 * * * /home/jeff/sandbox/solo-odds/.venv/bin/solo-odds refresh --coin btc >/dev/null 2>&1
+
