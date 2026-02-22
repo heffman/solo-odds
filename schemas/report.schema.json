@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solo-odds.dev/schemas/report.schema.json",
+  "title": "Solo Odds Report Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "input",
+    "network_snapshot",
+    "analytic"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coin",
+        "hashrate_hs",
+        "hashrate_display",
+        "horizon_days",
+        "drift_model",
+        "monte_carlo_runs"
+      ],
+      "properties": {
+        "coin": {
+          "type": "string",
+          "enum": ["btc", "bch"]
+        },
+        "hashrate_hs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "hashrate_display": {
+          "type": "string"
+        },
+        "horizon_days": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "drift_model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "parameters"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["flat", "step", "linear"]
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["step_pct", "step_days", "daily_pct"],
+              "properties": {
+                "step_pct": {
+                  "type": ["number", "null"]
+                },
+                "step_days": {
+                  "type": ["integer", "null"],
+                  "minimum": 1
+                },
+                "daily_pct": {
+                  "type": ["number", "null"]
+                }
+              }
+            }
+          }
+        },
+        "monte_carlo_runs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+
+    "network_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timestamp",
+        "network_hashrate_hs",
+        "difficulty",
+        "blocks_per_day",
+        "block_reward"
+      ],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "network_hashrate_hs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "difficulty": {
+          "type": "number",
+          "minimum": 0
+        },
+        "blocks_per_day": {
+          "type": "number",
+          "minimum": 0
+        },
+        "block_reward": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+
+    "analytic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lambda_per_day",
+        "expected_blocks",
+        "probability_at_least_one",
+        "probability_zero_blocks",
+        "block_distribution",
+        "time_to_first_block_days"
+      ],
+      "properties": {
+        "lambda_per_day": {
+          "type": "number",
+          "minimum": 0
+        },
+        "expected_blocks": {
+          "type": "number",
+          "minimum": 0
+        },
+        "probability_at_least_one": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "probability_zero_blocks": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "block_distribution": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["k", "probability"],
+            "properties": {
+              "k": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "probability": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        },
+        "time_to_first_block_days": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p10", "p50", "p90", "mean"],
+          "properties": {
+            "p10": { "type": "number", "minimum": 0 },
+            "p50": { "type": "number", "minimum": 0 },
+            "p90": { "type": "number", "minimum": 0 },
+            "mean": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+
+    "monte_carlo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "runs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "blocks_over_horizon": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mean",
+            "p10",
+            "p50",
+            "p90",
+            "probability_at_least_one",
+            "probability_zero"
+          ],
+          "properties": {
+            "mean": { "type": "number", "minimum": 0 },
+            "p10": { "type": "number", "minimum": 0 },
+            "p50": { "type": "number", "minimum": 0 },
+            "p90": { "type": "number", "minimum": 0 },
+            "probability_at_least_one": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "probability_zero": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "time_to_first_block_days": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p10", "p50", "p90", "mean"],
+          "properties": {
+            "p10": { "type": "number", "minimum": 0 },
+            "p50": { "type": "number", "minimum": 0 },
+            "p90": { "type": "number", "minimum": 0 },
+            "mean": { "type": "number", "minimum": 0 }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } } },
+          "then": {
+            "required": ["runs", "blocks_over_horizon", "time_to_first_block_days"]
+          }
+        }
+      ]
+    },
+
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
