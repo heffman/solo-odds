@@ -242,5 +242,154 @@ def odds(
     typer.echo(_render_text(coin_norm, hr.format(), days, report))
 
 
+@app.command()
+def curve(
+    coin: str = typer.Option(..., help="btc or bch"),
+    hashrate: str = typer.Option(..., help="e.g. 9.4TH, 1200 GH/s, 9.4e12"),
+    days: int = typer.Option(..., help="Max horizon in days"),
+    interval_days: int = typer.Option(1, help="Sample every N days (1 => daily)"),
+    drift: str = typer.Option("flat", help="flat|step|linear"),
+    step_pct: float = typer.Option(2.0, help="Step drift percent per step (e.g. 2 for +2%)"),
+    step_days: int = typer.Option(14, help="Days per step for step drift"),
+    daily_pct: float = typer.Option(0.0, help="Daily drift percent for linear drift (e.g. 0.1)"),
+    json: bool = typer.Option(False, help="Emit JSON output"),
+    csv: bool = typer.Option(False, help="Emit CSV output"),
+) -> None:
+    """
+    Produce a probability curve vs time horizon.
+
+    Outputs a series of points with:
+      - day
+      - expected_blocks (mu)
+      - probability_at_least_one
+      - probability_zero
+    """
+    coin_norm = coin.strip().lower()
+    if coin_norm not in ("btc", "bch"):
+        typer.echo("coin must be 'btc' or 'bch'", err=True)
+        raise typer.Exit(code=2)
+
+    if days <= 0:
+        typer.echo("days must be > 0", err=True)
+        raise typer.Exit(code=2)
+
+    if interval_days <= 0:
+        typer.echo("interval_days must be > 0", err=True)
+        raise typer.Exit(code=2)
+
+    if json and csv:
+        typer.echo("Choose only one: --json or --csv", err=True)
+        raise typer.Exit(code=2)
+
+    try:
+        hr = parse_hashrate(hashrate)
+    except UnitParseError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2)
+
+    store = SnapshotStore.from_repo_root()
+    try:
+        snapshot = store.read_latest(coin_norm)
+    except SnapshotStoreError as exc:
+        typer.echo(
+            f"{exc}\n\nTip: run `solo-odds refresh --coin {coin_norm}` to populate latest.json.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    try:
+        base_lambda = compute_lambda_per_day(
+            your_hashrate_hs=hr.hs,
+            network_hashrate_hs=snapshot.network_hashrate_hs,
+            blocks_per_day=snapshot.blocks_per_day,
+        )
+    except AnalyticError as exc:
+        typer.echo(f"Error computing base rate: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    try:
+        drift_model = drift_model_from_cli(
+            drift_type=drift,
+            step_pct=step_pct,
+            step_days=step_days,
+            daily_pct=daily_pct,
+        )
+    except DriftError as exc:
+        typer.echo(f"Drift model error: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    # Build curve points
+    points: List[Dict[str, Any]] = []
+    for horizon in range(interval_days, days + 1, interval_days):
+        try:
+            segments = make_segments(
+                base_lambda_per_day=base_lambda,
+                horizon_days=horizon,
+                drift=drift_model,
+            )
+            res = analyze_segments(segments)
+        except AnalyticError as exc:
+            typer.echo(f"Analytic error at horizon={horizon}: {exc}", err=True)
+            raise typer.Exit(code=2)
+
+        points.append(
+            {
+                "day": horizon,
+                "expected_blocks": res.expected_blocks,
+                "probability_at_least_one": res.probability_at_least_one,
+                "probability_zero": res.probability_zero_blocks,
+            }
+        )
+
+    payload: Dict[str, Any] = {
+        "schema_version": 1,
+        "generated_at": _now_utc_iso(),
+        "input": {
+            "coin": coin_norm,
+            "hashrate_hs": hr.hs,
+            "hashrate_display": hr.format(),
+            "max_days": days,
+            "interval_days": interval_days,
+            "drift_model": {
+                "type": drift_model.type,
+                "parameters": {
+                    "step_pct": drift_model.step_pct if drift_model.type == "step" else None,
+                    "step_days": drift_model.step_days if drift_model.type == "step" else None,
+                    "daily_pct": drift_model.daily_pct if drift_model.type == "linear" else None,
+                },
+            },
+        },
+        "network_snapshot": _network_snapshot_to_report(snapshot),
+        "points": points,
+        "notes": [
+            "Each point is computed independently for horizon=day (not cumulative simulation).",
+            "Counts use Poisson with integrated intensity over the horizon.",
+        ],
+    }
+
+    if json:
+        typer.echo(_json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    if csv:
+        # Simple CSV for plotting
+        typer.echo("day,expected_blocks,probability_at_least_one,probability_zero")
+        for p in points:
+            typer.echo(
+                f"{p['day']},{p['expected_blocks']:.12g},"
+                f"{p['probability_at_least_one']:.12g},{p['probability_zero']:.12g}"
+            )
+        return
+
+    # Text table
+    typer.echo(f"Curve ({coin_norm.upper()}) hashrate={hr.format()} max_days={days} interval={interval_days}d")
+    typer.echo("day  expected_blocks  P(>=1)       P(0)")
+    for p in points:
+        typer.echo(
+            f"{p['day']:>3}  {p['expected_blocks']:<14.6g}  "
+            f"{p['probability_at_least_one']:<11.6g}  {p['probability_zero']:.6g}"
+        )
+        
+
 if __name__ == "__main__":
     app()
