@@ -1,95 +1,284 @@
-# Solo Odds (V1)
+# Solo Odds
 
-A rigorous **solo mining probability engine** for small miners.
+A probabilistic tool for modeling solo Bitcoin (BTC) and Bitcoin Cash (BCH) mining outcomes.
 
-This project models solo block discovery using a **Poisson process** (analytic results)
-and optionally runs **Monte Carlo simulations** to produce variance bands and
-percentile outcomes (time-to-first-block, blocks-in-window), including simple
-network difficulty/hashrate drift scenarios.
+Solo Odds answers a specific question:
 
-V1 is intentionally narrow:
-- **Coins:** BTC and BCH
-- **Outputs:** probability of ≥1 block over a horizon, expected blocks, distributions, percentiles
-- **Interfaces:** CLI first (web UI later)
+> Given my hashrate and a time horizon, what are the actual odds?
 
-This is not a mining dashboard and not a profitability calculator. It is a **risk/variance tool**.
+It provides analytic Poisson modeling, drift-aware projections, Monte Carlo simulation, and exportable curves suitable for plotting or further analysis.
+
+This is not a mining pool.
+This is not a “profit calculator.”
+This is a variance model.
 
 ---
 
-## What It Computes
+## Why This Exists
 
-Given:
-- your hashrate
-- coin (btc/bch)
-- horizon (days)
-- network conditions (from cached snapshots)
-- optional drift model
+Most mining calculators focus on expected value:
 
-It returns:
-- `P(>=1 block)` over N days
-- expected blocks
-- `P(k blocks)` distribution (0..K)
-- time-to-first-block distribution + percentiles (p10/p50/p90)
-- optional Monte Carlo estimates under drift
+> “You’ll mine 0.004 blocks in 30 days.”
+
+That number is meaningless without context.
+
+Solo mining is dominated by variance. What matters is:
+
+- Probability of at least one block
+- Probability of zero blocks
+- Distribution of outcomes
+- Time-to-first-block percentiles
+- Sensitivity to network growth
+
+Solo Odds models those explicitly.
+
+---
+
+## Features
+
+### Analytic Engine (Poisson Model)
+- Integrated intensity over arbitrary time horizons
+- Piecewise rate modeling
+- Probability distribution of block counts
+- Time-to-first-block percentiles
+- Deterministic, fast, exact for homogeneous segments
+
+### Drift Modeling
+
+Supports network growth assumptions:
+
+- `flat` – constant rate
+- `step` – step increase every N days (e.g. +2% every 14 days)
+- `linear` – continuous daily percent growth
+
+This allows modeling realistic difficulty/network hashrate growth.
+
+### Monte Carlo Simulation
+- Independent simulation engine
+- Validates analytic model
+- Estimates:
+    - mean blocks
+    - p10 / p50 / p90 blocks
+    - P(>=1)
+    - P(0)
+    - time-to-first-block distribution
+- Useful when drift is non-trivial
+
+### Curve Generation
+
+Generate probability-vs-time curves:
+
+- JSON output
+- CSV output
+- CLI table output
+
+### Plot Generation
+
+Render publication-ready PNG plots:
+
+- Probability curves
+- Expected blocks curves
+- Log-scale support for low-rate scenarios
+
+---
+
+## Installation
+
+```bash
+pip install -e .
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/<yourname>/solo-odds.git
+cd solo-odds
+pip install .
+```
+
+--- 
+
+## First Run
+
+Fetch latest network snapshot:
+
+```bash
+solo-odds refresh --coin bch
+```
+
+Then compute odds:
+
+```bash
+solo-odds odds \
+  --coin bch \
+  --hashrate 9.4TH \
+  --days 180 \
+  --json
+```
+
+---
+
+## Example Output (Analytic)
+
+```JSON
+{
+  "analytic": {
+    "expected_blocks": 0.42,
+    "probability_at_least_one": 0.344,
+    "probability_zero_blocks": 0.656,
+    "time_to_first_block_days": {
+      "p10": 12.3,
+      "p50": 110.4,
+      "p90": 410.7,
+      "mean": 238.1
+    }
+  }
+}
+```
+
+Interpretation:
+
+- You are more likely to mine zero blocks than one.
+- Median time to first block exceeds your 180-day horizon.
+- Expected value alone is misleading.
+
+---
+
+## Modeling Network Growth
+
+Step growth:
+
+```bash
+solo-odds odds \
+  --coin bch \
+  --hashrate 9.4TH \
+  --days 365 \
+  --drift step \
+  --step-pct 2 \
+  --step-days 14
+```
+
+Linear daily growth:
+
+```bash
+solo-odds odds \
+  --coin btc \
+  --hashrate 50TH \
+  --days 365 \
+  --drift linear \
+  --daily-pct 0.15
+```
+
+---
+
+## Monte Carlo
+
+```bash
+solo-odds odds \
+  --coin bch \
+  --hashrate 9.4TH \
+  --days 365 \
+  --mc 20000
+```
+
+Monte Carlo confirms analytic probabilities and provides distribution summaries.
+
+---
+
+## Generate Curve (JSON)
+
+```bash
+solo-odds curve \
+  --coin bch \
+  --hashrate 9.4TH \
+  --days 365 \
+  --json
+```
+
+---
+
+
+## Plot Probability Curve
+
+```bash
+solo-odds plot \
+  --coin bch \
+  --hashrate 9.4TH \
+  --days 365 \
+  --y p \
+  --out p_curve.png
+```
+
+---
+
+## Plot Expected Blocks (Log Scale)
+
+```bash
+solo-odds plot \
+  --coin bch \
+  --hashrate 9.4TH \
+  --days 365 \
+  --y mu \
+  --log-y \
+  --min-y 1e-10 \
+  --out mu_log.png
+```
 
 ---
 
 ## Data Sources
 
-The CLI uses a cached `data/<coin>/latest.json` snapshot by default.
+Snapshots are fetched from public network APIs and cached locally:
 
-You refresh snapshots explicitly:
+- BTC: blockchain.com query API
+- BCH: Blockchair (primary) with FullStack.cash fallback
 
-```bash
-solo-odds refresh --coin bch
-solo-odds refresh --coin btc
+Snapshots are stored under:
+
+```
+data/<coin>/latest.json
 ```
 
-## Install (Dev)
+---
 
-Requirements:
+## Assumptions
+- Blocks follow a Poisson process.
+- Fees are excluded (subsidy-only modeling in v1).
+- Network growth is modeled deterministically via drift.
+- Mining hardware reliability is not modeled.
 
-- Python 3.11+ recommended
+This tool models block-finding probability, not profitability.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip
-pip install -e ".[dev]"
-```
+---
 
-- Run tests:
+## Non-Goals
+- Mining pool functionality
+- Hardware configuration
+- Electricity cost modeling
+- Tax reporting
+- Financial advice
 
-```bash
-pytest -q
-```
 
-## CLI Usage
+---
 
-Examples (analytic mode):
+## Intended Audience
+- Home solo miners
+- ASIC hobbyists
+- Statistically literate operators
+- Anyone who wants to understand variance honestly
 
-```bash
-solo-odds odds --coin bch --hashrate 9.4TH --days 90
-solo-odds odds --coin btc --hashrate 9.4TH --days 365
-```
+---
 
-With drift (step growth: +2% network hashrate every 14 days):
+## Philosophy
 
-```bash
-solo-odds odds --coin bch --hashrate 9.4TH --days 180 \
-  --drift step --step-pct 2 --step-days 14
-```
+Solo mining is a variance game.
 
-Monte Carlo (20k runs):
+Expected value without distribution context is incomplete.
 
-```bash
-solo-odds odds --coin bch --hashrate 9.4TH --days 365 \
-  --drift step --step-pct 2 --step-days 14 \
-  --mc 20000
-```
+This tool exists to make variance explicit.
 
-JSON output:
+--- 
 
-```bash
-solo-odds odds --coin bch --hashrate 9.4TH --days 90 --json
-```
+## License
+
+MIT License.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as _json
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -60,6 +61,42 @@ def _analytic_to_report(result) -> Dict[str, Any]:
             "mean": result.time_to_first_block_days["mean"],
         },
     }
+
+def _compute_curve_points(
+    *,
+    base_lambda_per_day: float,
+    max_days: int,
+    interval_days: int,
+    drift_model,
+) -> List[Dict[str, Any]]:
+    """
+    Compute a probability curve over horizons 1..max_days at interval_days steps.
+
+    Returns a list of points:
+      {day, expected_blocks, probability_at_least_one, probability_zero}
+    """
+    if max_days <= 0:
+        raise ValueError("max_days must be > 0")
+    if interval_days <= 0:
+        raise ValueError("interval_days must be > 0")
+
+    points: List[Dict[str, Any]] = []
+    for horizon in range(interval_days, max_days + 1, interval_days):
+        segments = make_segments(
+            base_lambda_per_day=base_lambda_per_day,
+            horizon_days=horizon,
+            drift=drift_model,
+        )
+        res = analyze_segments(segments)
+        points.append(
+            {
+                "day": horizon,
+                "expected_blocks": res.expected_blocks,
+                "probability_at_least_one": res.probability_at_least_one,
+                "probability_zero": res.probability_zero_blocks,
+            }
+        )
+    return points
 
 
 def _render_text(coin: str, hashrate_display: str, days: int, report: Dict[str, Any]) -> str:
@@ -319,27 +356,16 @@ def curve(
         raise typer.Exit(code=2)
 
     # Build curve points
-    points: List[Dict[str, Any]] = []
-    for horizon in range(interval_days, days + 1, interval_days):
-        try:
-            segments = make_segments(
-                base_lambda_per_day=base_lambda,
-                horizon_days=horizon,
-                drift=drift_model,
-            )
-            res = analyze_segments(segments)
-        except AnalyticError as exc:
-            typer.echo(f"Analytic error at horizon={horizon}: {exc}", err=True)
-            raise typer.Exit(code=2)
-
-        points.append(
-            {
-                "day": horizon,
-                "expected_blocks": res.expected_blocks,
-                "probability_at_least_one": res.probability_at_least_one,
-                "probability_zero": res.probability_zero_blocks,
-            }
+    try:
+        points = _compute_curve_points(
+            base_lambda_per_day=base_lambda,
+            max_days=days,
+            interval_days=interval_days,
+            drift_model=drift_model,
         )
+    except AnalyticError as exc:
+        typer.echo(f"Analytic error computing curve: {exc}", err=True)
+        raise typer.Exit(code=2)
 
     payload: Dict[str, Any] = {
         "schema_version": 1,
@@ -390,6 +416,153 @@ def curve(
             f"{p['probability_at_least_one']:<11.6g}  {p['probability_zero']:.6g}"
         )
         
+
+@app.command()
+def plot(
+    coin: str = typer.Option(..., help="btc or bch"),
+    hashrate: str = typer.Option(..., help="e.g. 9.4TH, 1200 GH/s, 9.4e12"),
+    days: int = typer.Option(..., help="Max horizon in days"),
+    interval_days: int = typer.Option(1, help="Sample every N days (1 => daily)"),
+    drift: str = typer.Option("flat", help="flat|step|linear"),
+    step_pct: float = typer.Option(2.0, help="Step drift percent per step (e.g. 2 for +2%)"),
+    step_days: int = typer.Option(14, help="Days per step for step drift"),
+    daily_pct: float = typer.Option(0.0, help="Daily drift percent for linear drift (e.g. 0.1)"),
+    y: str = typer.Option("p", help="y-axis: 'p' for P(>=1), 'mu' for expected blocks"),
+    log_y: bool = typer.Option(False, help="Log-scale Y axis (only valid with --y mu)"),
+    min_y: float = typer.Option(1e-12, help="Minimum Y value when using --log-y (mu only)"),
+    out: Path = typer.Option(Path("curve.png"), help="Output PNG path"),
+    title: Optional[str] = typer.Option(None, help="Override plot title"),
+) -> None:
+    """
+    Plot a curve to a PNG file.
+
+    y:
+      - p  => probability_at_least_one
+      - mu => expected_blocks
+    """
+    # Import matplotlib lazily so CLI works without it unless plot is used.
+    try:
+        import matplotlib
+        matplotlib.use("Agg")  # headless
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        typer.echo(f"matplotlib is required for plot: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    coin_norm = coin.strip().lower()
+    if coin_norm not in ("btc", "bch"):
+        typer.echo("coin must be 'btc' or 'bch'", err=True)
+        raise typer.Exit(code=2)
+
+    if days <= 0:
+        typer.echo("days must be > 0", err=True)
+        raise typer.Exit(code=2)
+
+    if interval_days <= 0:
+        typer.echo("interval_days must be > 0", err=True)
+        raise typer.Exit(code=2)
+
+    y_mode = (y or "").strip().lower()
+    if y_mode not in ("p", "mu"):
+        typer.echo("y must be 'p' or 'mu'", err=True)
+        raise typer.Exit(code=2)
+
+    if log_y and y_mode != "mu":
+        typer.echo("--log-y is only valid with --y mu", err=True)
+        raise typer.Exit(code=2)
+
+    if log_y:
+        if min_y <= 0:
+            typer.echo("--min-y must be > 0 when using --log-y", err=True)
+            raise typer.Exit(code=2)
+
+    try:
+        hr = parse_hashrate(hashrate)
+    except UnitParseError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2)
+
+    store = SnapshotStore.from_repo_root()
+    try:
+        snapshot = store.read_latest(coin_norm)
+    except SnapshotStoreError as exc:
+        typer.echo(
+            f"{exc}\n\nTip: run `solo-odds refresh --coin {coin_norm}` to populate latest.json.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    try:
+        base_lambda = compute_lambda_per_day(
+            your_hashrate_hs=hr.hs,
+            network_hashrate_hs=snapshot.network_hashrate_hs,
+            blocks_per_day=snapshot.blocks_per_day,
+        )
+    except AnalyticError as exc:
+        typer.echo(f"Error computing base rate: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    try:
+        drift_model = drift_model_from_cli(
+            drift_type=drift,
+            step_pct=step_pct,
+            step_days=step_days,
+            daily_pct=daily_pct,
+        )
+    except DriftError as exc:
+        typer.echo(f"Drift model error: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    # Build curve points
+    try:
+        points = _compute_curve_points(
+            base_lambda_per_day=base_lambda,
+            max_days=days,
+            interval_days=interval_days,
+            drift_model=drift_model,
+        )
+    except AnalyticError as exc:
+        typer.echo(f"Analytic error computing curve: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    xs: List[int] = [int(p["day"]) for p in points]
+    if y_mode == "p":
+        ys: List[float] = [float(p["probability_at_least_one"]) for p in points]
+    else:
+        ys = [float(p["expected_blocks"]) for p in points]
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
+    ax.plot(xs, ys)
+
+    ax.set_xlabel("Days")
+
+    if y_mode == "p":
+        ax.set_ylabel("P(>=1 block)")
+        ax.set_ylim(0.0, 1.0)
+        default_title = f"Solo mining probability ({coin_norm.upper()})"
+    else:
+        ax.set_ylabel("Expected blocks (mu)")
+        default_title = f"Solo mining expected blocks ({coin_norm.upper()})"
+        if log_y:
+            ax.set_yscale("log")
+            # Clamp values to avoid log(0)
+            ys = [v if v > min_y else min_y for v in ys]
+
+    subtitle = f"hashrate={hr.format()} drift={drift_model.type} interval={interval_days}d"
+    ax.set_title(title or f"{default_title}\n{subtitle}")
+
+    ax.grid(True)
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+    typer.echo(f"Wrote {out}")
+
 
 if __name__ == "__main__":
     app()
