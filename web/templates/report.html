@@ -4,37 +4,7 @@
   <meta charset="utf-8">
   <title>Solo Odds Report</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { font-family: sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
-    .card { border: 1px solid #ddd; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
-    .nav { display:flex; gap: 1rem; margin: 0.5rem 0 1rem 0; }
-    code { background: #f6f6f6; padding: 0.1rem 0.3rem; border-radius: 4px; }
-    table { border-collapse: collapse; width: 100%; }
-    td, th { border: 1px solid #eee; padding: 0.5rem; text-align: left; }
-    .row { display:flex; gap: 1rem; flex-wrap: wrap; }
-    .metric { min-width: 260px; }
-    button { padding: 0.4rem 0.7rem; }
-
-    /* NEW: share link layout + long token wrapping */
-    .share-grid { display: grid; gap: 0.75rem; }
-    .share-line { display:flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-    .share-box {
-      display: inline-block;
-      max-width: 100%;
-      padding: 0.35rem 0.5rem;
-      border-radius: 6px;
-      background: #f6f6f6;
-      border: 1px solid #eee;
-
-      /* critical for long tokens */
-      overflow-wrap: anywhere;
-      word-break: break-word;
-      white-space: normal;
-    }
-    .share-box a { color: inherit; text-decoration: none; }
-    .share-box a:hover { text-decoration: underline; }
-    .muted { color: #666; font-size: 0.9rem; }
-  </style>
+  <link rel="stylesheet" href="/static/site.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
