@@ -16,8 +16,26 @@ location / {
   proxy_set_header X-Forwarded-Proto $scheme;
 }
 
+location = /robots.txt {
+    root /srv/solo-odds/web/static;
+}
+
+location = /sitemap.xml {
+    root /srv/solo-odds/web/static;
+}
+
 add this to the crontab:
 
 0 */6 * * * /home/jeff/sandbox/solo-odds/.venv/bin/solo-odds refresh --coin bch >/dev/null 2>&1
 0 */6 * * * /home/jeff/sandbox/solo-odds/.venv/bin/solo-odds refresh --coin btc >/dev/null 2>&1
 
+to check waitlist:
+tail -n 5 /srv/solo-odds/var/waitlist.txt
+
+Share link views:
+
+sudo grep -E 'GET /r/' /var/log/nginx/access.log | wc -l
+
+Waitlist posts (FastAPI runs behind nginx, so easiest is systemd logs):
+
+journalctl -u solo-odds-web --since "today" | grep waitlist | wc -l
