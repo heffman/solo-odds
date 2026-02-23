@@ -6,7 +6,6 @@ import hmac
 import json
 import os
 from pathlib import Path
-from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from solo_odds.data.store import SnapshotStore
+from solo_odds.data.models import NetworkSnapshot
 from solo_odds.math.analytic import AnalyticError, analyze_segments, compute_lambda_per_day
 from solo_odds.math.drift import DriftError, drift_model_from_cli, make_segments
 from solo_odds.sim.monte_carlo import MonteCarloError, run_monte_carlo
@@ -54,6 +54,13 @@ class ShareParams(BaseModel):
     step_days: int = 14
     daily_pct: float = 0.0
     mc: int = Field(ge=0, le=200000)    # cap MC to avoid abuse
+
+
+class TokenPayloadV2(BaseModel):
+    v: int = Field(2)
+    params: ShareParams
+    # Store full snapshot dict (includes 'coin'); we validate via NetworkSnapshot.from_dict().
+    snapshot: Dict[str, Any]
 
 
 def _secret() -> bytes:
@@ -96,6 +103,39 @@ def parse_token(token: str) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail='Invalid token payload') from exc
 
 
+def _parse_token_payload(raw: Dict[str, Any]) -> tuple[ShareParams, Optional[NetworkSnapshot]]:
+    """
+    Supports:
+      - v1 tokens: payload is ShareParams dict (no snapshot; uses latest.json at render time)
+      - v2 tokens: {"v":2,"params":{...},"snapshot":{...}}
+    Returns (params, snapshot_or_none).
+    """
+    # v2
+    if isinstance(raw, dict) and raw.get('v') == 2:
+        try:
+            payload = TokenPayloadV2(**raw)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail='Invalid token payload (v2)') from exc
+
+        try:
+            snap = NetworkSnapshot.from_dict(payload.snapshot)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail='Invalid snapshot embedded in token') from exc
+
+        # Defensive: ensure snapshot coin matches params.coin
+        if snap.coin != payload.params.coin:
+            raise HTTPException(status_code=400, detail='Token snapshot coin mismatch')
+
+        return payload.params, snap
+
+    # v1 fallback: treat entire dict as ShareParams
+    try:
+        params = ShareParams(**raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Invalid token payload (v1)') from exc
+    return params, None
+
+
 def _network_snapshot_to_report(snapshot) -> Dict[str, Any]:
     d = snapshot.to_dict()
     # IMPORTANT: your schema disallows 'coin' here
@@ -136,12 +176,13 @@ def _compute_curve_points(
     return points
 
 
-def build_report(params: ShareParams) -> Dict[str, Any]:
+def build_report(params: ShareParams, snapshot: Optional[NetworkSnapshot] = None) -> Dict[str, Any]:
     # Parse hashrate
     hr = parse_hashrate(params.hashrate)
 
-    store = SnapshotStore.from_repo_root()
-    snapshot = store.read_latest(params.coin)
+    if snapshot is None:
+        store = SnapshotStore.from_repo_root()
+        snapshot = store.read_latest(params.coin)
 
     base_lambda = compute_lambda_per_day(
         your_hashrate_hs=hr.hs,
@@ -299,7 +340,17 @@ def share(
         daily_pct=float(daily_pct),
         mc=int(mc),
     )
-    token = make_token(params.model_dump())
+
+    # Freeze snapshot into token (v2)
+    store = SnapshotStore.from_repo_root()
+    snapshot = store.read_latest(params.coin)
+    token_payload = {
+        'v': 2,
+        'params': params.model_dump(),
+        # store full snapshot dict (includes coin)
+        'snapshot': snapshot.to_dict(),
+    }
+    token = make_token(token_payload)
     return RedirectResponse(url=f'/r/{token}', status_code=303)
 
 
@@ -307,8 +358,8 @@ def share(
 def render_report(token: str, request: Request) -> HTMLResponse:
     raw = parse_token(token)
     try:
-        params = ShareParams(**raw)
-        report = build_report(params)
+        params, snap = _parse_token_payload(raw)
+        report = build_report(params, snapshot=snap)
     except (UnitParseError, AnalyticError, DriftError, MonteCarloError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -333,9 +384,11 @@ def render_report(token: str, request: Request) -> HTMLResponse:
 def api_report(token: str) -> JSONResponse:
     raw = parse_token(token)
     try:
-        params = ShareParams(**raw)
-        report = build_report(params)
+        params, snap = _parse_token_payload(raw)
+        report = build_report(params, snapshot=snap)
         report.pop('_curve', None)
         return JSONResponse(report)
     except (UnitParseError, AnalyticError, DriftError, MonteCarloError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
