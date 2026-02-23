@@ -72,6 +72,20 @@
         <label>Monte Carlo runs</label>
         <input name="mc" type="number" value="{{ defaults.mc }}">
       </div>
+
+      <div class="field">
+        <label>
+          <input name="reinvest" type="checkbox" {% if defaults.reinvest %}checked{% endif %}>
+          Reinvest after first block
+        </label>
+        <div class="muted">Adds a Monte Carlo overlay curve.</div>
+      </div>
+
+      <div class="field">
+        <label>Reinvest multiplier</label>
+        <input name="reinvest_multiplier" type="number" step="0.1" value="{{ defaults.reinvest_multiplier }}">
+        <div class="muted">Example: 2.0 doubles hashrate after the first block.</div>
+      </div>
     </div>
 
     <div class="actions">

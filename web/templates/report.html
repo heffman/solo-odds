@@ -88,6 +88,19 @@
   </div>
   {% endif %}
 
+  {% if reinvest and reinvest.enabled %}
+  <div class="card">
+    <h2>Reinvestment scenario</h2>
+    <div class="row">
+      <div class="metric"><strong>Multiplier:</strong> {{ reinvest.multiplier }}</div>
+      <div class="metric"><strong>Monte Carlo runs:</strong> {{ reinvest.runs }}</div>
+    </div>
+    <p class="muted">
+      Assumes hashrate increases immediately after the first block is found.
+    </p>
+  </div>
+{% endif %}
+
   <div class="card">
     <h2>Network snapshot</h2>
     <table>
@@ -104,24 +117,32 @@
   <script>
     const points = {{ curve|tojson }};
     const labels = points.map(p => p.day);
-    const series = points.map(p => p.probability_at_least_one);
+    const baseline = points.map(p => p.probability_at_least_one);
+
+    const datasets = [{
+      label: 'Baseline (analytic)',
+      data: baseline,
+      tension: 0.2
+    }];
+
+    {% if reinvest and reinvest.enabled %}
+    const reinvestPoints = {{ reinvest.points|tojson }};
+    const reinvestSeries = reinvestPoints.map(p => p.probability_at_least_one);
+
+    datasets.push({
+      label: 'Reinvest after first block (MC)',
+      data: reinvestSeries,
+      tension: 0.2
+    });
+    {% endif %}
 
     const ctx = document.getElementById('curve');
     new Chart(ctx, {
       type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: 'P(≥1 block)',
-          data: series,
-          tension: 0.2
-        }]
-      },
+      data: { labels, datasets },
       options: {
         responsive: true,
-        scales: {
-          y: { min: 0, max: 1 }
-        }
+        scales: { y: { min: 0, max: 1 } }
       }
     });
 
@@ -134,7 +155,6 @@
         status.textContent = 'Copied.';
         setTimeout(() => { status.textContent = ''; }, 1500);
       } catch (e) {
-        // Fallback: prompt
         window.prompt('Copy this link:', url);
       }
     });

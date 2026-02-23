@@ -19,7 +19,7 @@ from solo_odds.data.store import SnapshotStore
 from solo_odds.data.models import NetworkSnapshot
 from solo_odds.math.analytic import AnalyticError, analyze_segments, compute_lambda_per_day
 from solo_odds.math.drift import DriftError, drift_model_from_cli, make_segments
-from solo_odds.sim.monte_carlo import MonteCarloError, run_monte_carlo
+from solo_odds.sim.monte_carlo import MonteCarloError, run_monte_carlo, run_reinvest_curve
 from solo_odds.units import UnitParseError, parse_hashrate
 
 app = FastAPI(title='solo-odds web')
@@ -54,6 +54,8 @@ class ShareParams(BaseModel):
     step_days: int = 14
     daily_pct: float = 0.0
     mc: int = Field(ge=0, le=200000)    # cap MC to avoid abuse
+    reinvest: bool = False
+    reinvest_multiplier: float = Field(2.0, ge=1.0, le=20.0)
 
 
 class TokenPayloadV2(BaseModel):
@@ -221,6 +223,8 @@ def build_report(params: ShareParams, snapshot: Optional[NetworkSnapshot] = None
                 },
             },
             'monte_carlo_runs': int(params.mc),
+            'reinvest': bool(params.reinvest),
+            'reinvest_multiplier': float(params.reinvest_multiplier),
         },
         'network_snapshot': _network_snapshot_to_report(snapshot),
         'analytic': {
@@ -240,8 +244,9 @@ def build_report(params: ShareParams, snapshot: Optional[NetworkSnapshot] = None
         ],
     }
 
+    mc_runs = int(params.mc)
     if params.mc and params.mc > 0:
-        mc_res = run_monte_carlo(segments=segments, runs=int(params.mc))
+        mc_res = run_monte_carlo(segments=segments, runs=mc_runs)
         report['monte_carlo'] = {
             'enabled': True,
             'runs': mc_res.runs,
@@ -257,6 +262,37 @@ def build_report(params: ShareParams, snapshot: Optional[NetworkSnapshot] = None
         drift_model=drift_model,
     )
     report['_curve'] = curve
+
+    # Reinvestment curve overlay (MC only)
+    # We simulate the full horizon once and derive all cutoffs from that run.
+    if params.reinvest:
+        # If user didn't request MC, force a sane default so the feature works.
+        runs_for_reinvest = mc_runs
+        if runs_for_reinvest <= 0:
+            runs_for_reinvest = 20000
+        # Respect global cap (ShareParams caps mc, but reinvest can be enabled with mc==0)
+        if runs_for_reinvest > 200000:
+            runs_for_reinvest = 200000
+
+        cutoffs = list(range(params.interval_days, params.days + 1, params.interval_days))
+        reinvest_res = run_reinvest_curve(
+            segments=segments,
+            cutoffs_days=cutoffs,
+            runs=runs_for_reinvest,
+            multiplier=float(params.reinvest_multiplier),
+        )
+        report['_reinvest'] = {
+            'enabled': True,
+            'multiplier': reinvest_res.multiplier,
+            'runs': reinvest_res.runs,
+            'time_to_first_block_days': reinvest_res.time_to_first_block_days,
+            'points': reinvest_res.points,
+            'notes': [
+                'Reinvestment assumes hashrate increases immediately after the first block is found.',
+                'Reinvestment curve is Monte Carlo and may vary slightly run-to-run.',
+            ],
+        }
+
     return report
 
 
@@ -276,6 +312,8 @@ def index(request: Request) -> HTMLResponse:
                 'step_days': 14,
                 'daily_pct': 0.0,
                 'mc': 0,
+                'reinvest': False,
+                'reinvest_multiplier': 2.0,
             },
         },
     )
@@ -328,6 +366,8 @@ def share(
     step_days: int = Form(14),
     daily_pct: float = Form(0.0),
     mc: int = Form(0),
+    reinvest: str = Form(''),  # checkbox => "on" when checked
+    reinvest_multiplier: float = Form(2.0),
 ) -> RedirectResponse:
     params = ShareParams(
         coin=coin.strip().lower(),
@@ -339,6 +379,8 @@ def share(
         step_days=int(step_days),
         daily_pct=float(daily_pct),
         mc=int(mc),
+        reinvest=(str(reinvest).strip().lower() in ('1', 'true', 'on', 'yes')),
+        reinvest_multiplier=float(reinvest_multiplier),
     )
 
     # Freeze snapshot into token (v2)
@@ -366,6 +408,7 @@ def render_report(token: str, request: Request) -> HTMLResponse:
         raise HTTPException(status_code=500, detail='Internal error') from exc
 
     curve = report.pop('_curve', [])
+    reinvest = report.pop('_reinvest', None)
     # Provide share URLs
     api_url = f'/api/report/{token}'
     return templates.TemplateResponse(
@@ -376,6 +419,7 @@ def render_report(token: str, request: Request) -> HTMLResponse:
             'api_url': api_url,
             'report': report,
             'curve': curve,
+            'reinvest': reinvest,
         },
     )
 
@@ -387,6 +431,7 @@ def api_report(token: str) -> JSONResponse:
         params, snap = _parse_token_payload(raw)
         report = build_report(params, snapshot=snap)
         report.pop('_curve', None)
+        report.pop('_reinvest', None)
         return JSONResponse(report)
     except (UnitParseError, AnalyticError, DriftError, MonteCarloError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

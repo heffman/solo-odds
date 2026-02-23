@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import math
 import random
+from bisect import bisect_left
 from dataclasses import dataclass
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Sequence, Optional
 
 from solo_odds.math.analytic import RateSegment
 
@@ -17,6 +18,14 @@ class MonteCarloError(ValueError):
 class MonteCarloResult:
     runs: int
     blocks_over_horizon: Dict[str, float]
+    time_to_first_block_days: Dict[str, float]
+
+
+@dataclass(frozen=True)
+class ReinvestCurveResult:
+    runs: int
+    multiplier: float
+    points: List[Dict[str, float]]
     time_to_first_block_days: Dict[str, float]
 
 
@@ -184,5 +193,165 @@ def run_monte_carlo(
     return MonteCarloResult(
         runs=runs,
         blocks_over_horizon=blocks_summary,
+        time_to_first_block_days=time_summary,
+    )
+
+
+def run_reinvest_curve(
+    *,
+    segments: Sequence[RateSegment],
+    cutoffs_days: List[int],
+    runs: int,
+    multiplier: float,
+    seed: int | None = None,
+) -> ReinvestCurveResult:
+    """
+    Monte Carlo curve for "reinvest after first block".
+
+    Model:
+      - Before first block: baseline piecewise-constant Poisson process defined by `segments`
+      - After first block: instantaneous rate scale by `multiplier` for the remaining time
+
+    We return curve points at `cutoffs_days` (e.g. [7,14,...,365]):
+
+      expected_blocks(day)
+      P(>=1)(day)
+      P(0)(day)
+
+    Notes:
+      - We simulate event times to correctly account for the rate change within a segment.
+      - This runs once for the full horizon and derives all cutoffs from that run.
+    """
+    if runs <= 0:
+        raise MonteCarloError('runs must be > 0')
+    if not segments:
+        raise MonteCarloError('segments must not be empty')
+    if multiplier < 1.0 or not math.isfinite(multiplier):
+        raise MonteCarloError('multiplier must be finite and >= 1.0')
+    if not cutoffs_days:
+        raise MonteCarloError('cutoffs_days must not be empty')
+    if any((not isinstance(d, int)) or d <= 0 for d in cutoffs_days):
+        raise MonteCarloError('cutoffs_days must contain positive integers')
+
+    cutoffs = sorted(set(cutoffs_days))
+    horizon_days = float(sum(s.duration_days for s in segments))
+    if horizon_days <= 0:
+        raise MonteCarloError('horizon_days must be > 0')
+    if float(cutoffs[-1]) - horizon_days > 1e-9:
+        raise MonteCarloError('Largest cutoff exceeds horizon implied by segments')
+
+    rng = random.Random(seed)
+
+    n = len(cutoffs)
+    sum_blocks_at: List[float] = [0.0] * n
+    sum_ge1_at: List[int] = [0] * n
+    first_times: List[float] = []
+
+    def record_event(diff: List[int], event_time: float) -> None:
+        # event_time is in absolute days since start
+        idx = bisect_left(cutoffs, event_time)
+        if idx < n:
+            diff[idx] += 1
+
+    for _ in range(runs):
+        diff: List[int] = [0] * (n + 1)  # +1 for safe prefix sum
+        t_cursor = 0.0
+        reinvested = False
+        first_time: Optional[float] = None
+
+        for seg in segments:
+            dt = float(seg.duration_days)
+            lam = float(seg.lambda_per_day)
+
+            if dt <= 0:
+                continue
+
+            if not reinvested:
+                if lam <= 0:
+                    t_cursor += dt
+                    continue
+
+                # First arrival under baseline rate in this segment
+                wait = -math.log(1.0 - rng.random()) / lam
+                if wait >= dt:
+                    # no events before reinvest in this segment
+                    t_cursor += dt
+                    continue
+
+                # First block occurs inside this segment
+                t_hit = t_cursor + wait
+                record_event(diff, t_hit)
+                first_time = t_hit
+                reinvested = True
+
+                # Remaining time in this segment under scaled rate
+                dt_rem = dt - wait
+                lam2 = lam * multiplier
+                k_more = _poisson_sample(lam2 * dt_rem, rng)
+                for _j in range(k_more):
+                    # Uniform in (t_hit, t_cursor + dt)
+                    u = rng.random()
+                    t_evt = t_hit + u * dt_rem
+                    record_event(diff, t_evt)
+
+                t_cursor += dt
+                continue
+
+            # Already reinvested: entire segment is scaled
+            lam2 = lam * multiplier
+            k = _poisson_sample(lam2 * dt, rng)
+            for _j in range(k):
+                u = rng.random()
+                t_evt = t_cursor + u * dt
+                record_event(diff, t_evt)
+
+            t_cursor += dt
+
+        # Prefix sum to get cumulative blocks at each cutoff
+        running = 0
+        for i in range(n):
+            running += diff[i]
+            sum_blocks_at[i] += float(running)
+            if running >= 1:
+                sum_ge1_at[i] += 1
+
+        if first_time is not None:
+            first_times.append(float(first_time))
+
+    points: List[Dict[str, float]] = []
+    for i, day in enumerate(cutoffs):
+        mean_blocks = float(sum_blocks_at[i] / runs)
+        p_ge1 = float(sum_ge1_at[i] / runs)
+        p_zero = 1.0 - p_ge1
+        points.append(
+            {
+                'day': float(day),
+                'expected_blocks': mean_blocks,
+                'probability_at_least_one': p_ge1,
+                'probability_zero': p_zero,
+            }
+        )
+
+    if first_times:
+        first_times_sorted = sorted(first_times)
+        mean_first = float(sum(first_times) / len(first_times))
+        time_summary = {
+            'p10': _percentile(first_times_sorted, 0.10),
+            'p50': _percentile(first_times_sorted, 0.50),
+            'p90': _percentile(first_times_sorted, 0.90),
+            'mean': mean_first,
+        }
+    else:
+        time_summary = {
+            'p10': math.inf,
+            'p50': math.inf,
+            'p90': math.inf,
+            'mean': math.inf,
+        }
+
+    return ReinvestCurveResult(
+        runs=runs,
+        multiplier=float(multiplier),
+        points=points,
         time_to_first_block_days=time_summary,
     )
