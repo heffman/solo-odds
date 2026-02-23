@@ -35,3 +35,11 @@ code {
   width: 100% !important;
   height: 100% !important;
 }
+
+/* Hard reset: prevent any global input rules from stretching checkboxes */
+input[type="checkbox"] {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  padding: 0 !important;
+}
