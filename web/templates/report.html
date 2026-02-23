@@ -72,7 +72,7 @@
   </div>
 
   <div class="card">
-    <h2>Curve: P(≥1 block) vs days</h2>
+    <h2>Curve: expected blocks (μ) vs days</h2>
     <canvas id="curve" height="120"></canvas>
   </div>
 
@@ -117,32 +117,35 @@
   <script>
     const points = {{ curve|tojson }};
     const labels = points.map(p => p.day);
-    const baseline = points.map(p => p.probability_at_least_one);
+    const series = points.map(p => p.expected_blocks);
 
     const datasets = [{
-      label: 'Baseline (analytic)',
-      data: baseline,
+      label: 'Baseline (analytic) — expected blocks',
+      data: series,
       tension: 0.2
     }];
 
     {% if reinvest and reinvest.enabled %}
     const reinvestPoints = {{ reinvest.points|tojson }};
-    const reinvestSeries = reinvestPoints.map(p => p.probability_at_least_one);
-
+    const reinvestSeries = reinvestPoints.map(p => p.expected_blocks);
     datasets.push({
-      label: 'Reinvest after first block (MC)',
+      label: 'Reinvest after first block (MC) — expected blocks',
       data: reinvestSeries,
       tension: 0.2
     });
     {% endif %}
 
-    const ctx = document.getElementById('curve');
     new Chart(ctx, {
       type: 'line',
       data: { labels, datasets },
       options: {
         responsive: true,
-        scales: { y: { min: 0, max: 1 } }
+        scales: {
+          y: {
+            title: { display: true, text: 'Expected blocks' }
+            // no fixed min/max; let it scale
+          }
+        }
       }
     });
 
