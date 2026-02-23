@@ -27,6 +27,12 @@ templates = Jinja2Templates(directory='web/templates')
 app.mount('/static', StaticFiles(directory='web/static'), name='static')
 
 
+def _seed_from_token(token: str) -> int:
+    # Stable 32-bit seed derived from token text
+    digest = hashlib.sha256(token.encode('utf-8')).digest()
+    return int.from_bytes(digest[:4], 'big', signed=False)
+
+
 def _repo_root() -> Path:
     # WorkingDirectory for systemd should be repo root; this is a safe fallback.
     return Path(__file__).resolve().parents[1]
@@ -178,7 +184,11 @@ def _compute_curve_points(
     return points
 
 
-def build_report(params: ShareParams, snapshot: Optional[NetworkSnapshot] = None) -> Dict[str, Any]:
+def build_report(
+    params: ShareParams,
+    snapshot: Optional[NetworkSnapshot] = None,
+    seed: Optional[int] = None,
+) -> Dict[str, Any]:
     # Parse hashrate
     hr = parse_hashrate(params.hashrate)
 
@@ -246,7 +256,7 @@ def build_report(params: ShareParams, snapshot: Optional[NetworkSnapshot] = None
 
     mc_runs = int(params.mc)
     if params.mc and params.mc > 0:
-        mc_res = run_monte_carlo(segments=segments, runs=mc_runs)
+        mc_res = run_monte_carlo(segments=segments, runs=mc_runs, seed=seed)
         report['monte_carlo'] = {
             'enabled': True,
             'runs': mc_res.runs,
@@ -280,6 +290,7 @@ def build_report(params: ShareParams, snapshot: Optional[NetworkSnapshot] = None
             cutoffs_days=cutoffs,
             runs=runs_for_reinvest,
             multiplier=float(params.reinvest_multiplier),
+            seed=seed,
         )
         report['_reinvest'] = {
             'enabled': True,
@@ -401,7 +412,8 @@ def render_report(token: str, request: Request) -> HTMLResponse:
     raw = parse_token(token)
     try:
         params, snap = _parse_token_payload(raw)
-        report = build_report(params, snapshot=snap)
+        seed = _seed_from_token(token)
+        report = build_report(params, snapshot=snap, seed=seed)
     except (UnitParseError, AnalyticError, DriftError, MonteCarloError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -429,7 +441,8 @@ def api_report(token: str) -> JSONResponse:
     raw = parse_token(token)
     try:
         params, snap = _parse_token_payload(raw)
-        report = build_report(params, snapshot=snap)
+        seed = _seed_from_token(token)
+        report = build_report(params, snapshot=snap, seed=seed)
         report.pop('_curve', None)
         report.pop('_reinvest', None)
         return JSONResponse(report)
