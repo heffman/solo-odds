@@ -1,218 +1,32 @@
-/* --- Base layout --- */
+//* site.css - minimal overrides on top of Bootstrap */
 
-body {
-  font-family: sans-serif;
-  max-width: 1000px;
-  margin: 2rem auto;
-  padding: 0 1rem;
-  line-height: 1.45;
-  color: #111;
-  background: #fff;
+:root {
+  --maxw: 1000px;
 }
 
-h1, h2 {
-  line-height: 1.2;
-  margin-bottom: 0.5rem;
+.container-narrow {
+  max-width: var(--maxw);
 }
-
-h2 {
-  margin-top: 0;
-}
-
-p {
-  margin: 0.5rem 0;
-}
-
-ul {
-  margin: 0.5rem 0 0.5rem 1.25rem;
-}
-
-/* --- Navigation --- */
-
-.nav {
-  display: flex;
-  gap: 1rem;
-  margin: 0.5rem 0 1rem 0;
-}
-
-a {
-  color: inherit;
-  text-decoration: underline;
-}
-
-a:hover {
-  text-decoration: none;
-}
-
-/* --- Cards --- */
-
-.card {
-  border: 1px solid #ddd;
-  padding: 1rem;
-  border-radius: 8px;
-  margin: 1rem 0;
-  background: #fff;
-}
-
-.muted {
-  color: #666;
-  font-size: 0.95rem;
-}
-
-/* --- Forms --- */
-
-.row {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  align-items: flex-end;
-}
-
-.field {
-  flex: 1 1 240px;
-  min-width: 220px;
-}
-
-/* Checkbox fields shouldn't baseline-align with text inputs */
-.field-check {
-  align-self: flex-start;
-}
-
-.field-check .muted { margin-top: 0.25rem; }
-
-/* Checkbox row alignment (use label as the flex container) */
-.checkline {
-  display: inline-flex;       /* inline-flex makes it hug content */
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  cursor: pointer;
-}
-
-.checkline input[type="checkbox"] {
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-  flex: 0 0 auto;
-}
-
-.checkline span {
-  font-size: 0.95rem;
-  line-height: 1.2;
-}
-
-label {
-  display: block;
-  font-size: 0.9rem;
-  margin-bottom: 0.25rem;
-}
-
-/* Apply "text input" styling to everything except checkboxes */
-input:not([type="checkbox"]),
-select {
-  padding: 0.5rem;
-  min-width: 220px;
-  max-width: 100%;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  background: #fff;
-}
-
-input:not([type="checkbox"]):focus,
-select:focus {
-  outline: none;
-  border-color: #999;
-}
-
-button {
-  padding: 0.6rem 1rem;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  background: #f6f6f6;
-  cursor: pointer;
-}
-
-button:hover {
-  background: #f0f0f0;
-}
-
-.actions {
-  margin-top: 1rem;
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-/* --- Metrics / layout blocks --- */
-
-.metric {
-  min-width: 260px;
-}
-
-/* --- Tables --- */
-
-table {
-  border-collapse: collapse;
-  width: 100%;
-}
-
-td,
-th {
-  border: 1px solid #eee;
-  padding: 0.5rem;
-  text-align: left;
-}
-
-/* --- Code blocks --- */
 
 code {
-  background: #f6f6f6;
   padding: 0.15rem 0.35rem;
-  border-radius: 4px;
-}
-
-/* --- Share link styling --- */
-
-.share-grid {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.share-line {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  border-radius: 0.35rem;
 }
 
 .share-box {
-  display: inline-block;
-  max-width: 100%;
-  padding: 0.35rem 0.5rem;
-  border-radius: 6px;
-  background: #f6f6f6;
-  border: 1px solid #eee;
-
-  /* Critical for long tokens */
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color);
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: normal;
 }
 
-.share-box a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.share-box a:hover {
-  text-decoration: underline;
-}
-
 .chart-wrap {
   position: relative;
-  height: 260px;     /* pick what you want */
+  height: 320px;
   width: 100%;
 }
 
@@ -220,17 +34,4 @@ code {
   display: block;
   width: 100% !important;
   height: 100% !important;
-}
-
-
-/* --- Responsive tweaks --- */
-
-@media (max-width: 600px) {
-  body {
-    margin: 1rem auto;
-  }
-
-  .metric {
-    min-width: 100%;
-  }
 }

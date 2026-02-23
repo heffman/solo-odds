@@ -4,116 +4,129 @@
   <meta charset="utf-8">
   <title>Solo Odds</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="/static/site.css">
 </head>
-<body>
-  <h1>Solo Odds</h1>
-  <div class="nav">
-    <a href="/methods">Methods</a>
-  </div>
-  <p>Generate a signed, shareable link for a solo mining odds report.</p>
-
-  {% if request.query_params.get('ok') == '1' %}
-    <p class="muted">Waitlist: saved.</p>
-  {% elif request.query_params.get('ok') == '0' %}
-    <p class="muted">Waitlist: invalid email.</p>
-  {% endif %}
-
-  <form method="post" action="/share" class="card">
-    <div class="row">
-      <div class="field">
-        <label>Coin</label>
-        <select name="coin">
-          <option value="btc" {% if defaults.coin == 'btc' %}selected{% endif %}>BTC</option>
-          <option value="bch" {% if defaults.coin == 'bch' %}selected{% endif %}>BCH</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>Hashrate</label>
-        <input name="hashrate" value="{{ defaults.hashrate }}">
-      </div>
-
-      <div class="field">
-        <label>Days</label>
-        <input name="days" type="number" value="{{ defaults.days }}">
-      </div>
-
-      <div class="field">
-        <label>Curve interval (days)</label>
-        <input name="interval_days" type="number" value="{{ defaults.interval_days }}">
-      </div>
-
-      <div class="field">
-        <label>Drift</label>
-        <select name="drift">
-          <option value="flat" {% if defaults.drift == 'flat' %}selected{% endif %}>flat</option>
-          <option value="step" {% if defaults.drift == 'step' %}selected{% endif %}>step</option>
-          <option value="linear" {% if defaults.drift == 'linear' %}selected{% endif %}>linear</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>Step %</label>
-        <input name="step_pct" type="number" step="0.01" value="{{ defaults.step_pct }}">
-      </div>
-
-      <div class="field">
-        <label>Step days</label>
-        <input name="step_days" type="number" value="{{ defaults.step_days }}">
-      </div>
-
-      <div class="field">
-        <label>Daily %</label>
-        <input name="daily_pct" type="number" step="0.01" value="{{ defaults.daily_pct }}">
-      </div>
-
-      <div class="field">
-        <label>Monte Carlo runs</label>
-        <input name="mc" type="number" value="{{ defaults.mc }}">
-      </div>
-
-      <div class="field field-check">
-        <label class="checkline">
-          <input id="reinvest" name="reinvest" type="checkbox" {% if defaults.reinvest %}checked{% endif %}>
-          <span>Reinvest after first block</span>
-        </label>
-        <div class="muted">Adds a Monte Carlo overlay curve.</div>
-      </div>
-
-      <div class="field">
-        <label>Reinvest multiplier</label>
-        <input id="reinvest-mult" name="reinvest_multiplier" type="number" step="0.1" value="{{ defaults.reinvest_multiplier }}">
-        <div class="muted">Example: 2.0 doubles hashrate after the first block.</div>
+<body class="bg-body">
+  <div class="container container-narrow py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1 class="h3 mb-0">Solo Odds</h1>
+      <div class="d-flex gap-3">
+        <a href="/methods" class="link-secondary">Methods</a>
       </div>
     </div>
 
-    <div class="actions">
-      <button type="submit">Generate share link</button>
-    </div>
-  </form>
-
-  <div class="card" style="margin-top:1rem;">
-    <h2 style="margin-top:0;">Early access</h2>
-    <p class="muted" style="margin-top:0;">
-      If you want long-horizon modeling, reinvestment scenarios, or higher Monte Carlo limits, join the list.
+    <p class="text-body-secondary">
+      Generate a signed, shareable link for a solo mining odds report.
     </p>
-    <form method="post" action="/waitlist">
-      <div class="row">
-        <div class="field">
-          <label>Email</label>
-          <input name="email" type="email" placeholder="you@example.com" required>
+
+    {% if request.query_params.get('ok') == '1' %}
+      <div class="alert alert-success py-2">Waitlist: saved.</div>
+    {% elif request.query_params.get('ok') == '0' %}
+      <div class="alert alert-warning py-2">Waitlist: invalid email.</div>
+    {% endif %}
+
+    <form method="post" action="/share" class="card p-3 mb-4">
+      <div class="row g-3">
+        <div class="col-12 col-md-4">
+          <label class="form-label">Coin</label>
+          <select name="coin" class="form-select">
+            <option value="btc" {% if defaults.coin == 'btc' %}selected{% endif %}>BTC</option>
+            <option value="bch" {% if defaults.coin == 'bch' %}selected{% endif %}>BCH</option>
+          </select>
         </div>
-        <!-- Honeypot (hidden). Bots tend to fill it. Humans won't see it. -->
-        <div style="position:absolute; left:-9999px; top:-9999px;">
-          <label>Company</label>
-          <input name="company" type="text" autocomplete="off">
+
+        <div class="col-12 col-md-4">
+          <label class="form-label">Hashrate</label>
+          <input name="hashrate" value="{{ defaults.hashrate }}" class="form-control">
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label">Days</label>
+          <input name="days" type="number" value="{{ defaults.days }}" class="form-control">
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label">Curve interval (days)</label>
+          <input name="interval_days" type="number" value="{{ defaults.interval_days }}" class="form-control">
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label">Drift</label>
+          <select name="drift" class="form-select">
+            <option value="flat" {% if defaults.drift == 'flat' %}selected{% endif %}>flat</option>
+            <option value="step" {% if defaults.drift == 'step' %}selected{% endif %}>step</option>
+            <option value="linear" {% if defaults.drift == 'linear' %}selected{% endif %}>linear</option>
+          </select>
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label">Step %</label>
+          <input name="step_pct" type="number" step="0.01" value="{{ defaults.step_pct }}" class="form-control">
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label">Step days</label>
+          <input name="step_days" type="number" value="{{ defaults.step_days }}" class="form-control">
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label">Daily %</label>
+          <input name="daily_pct" type="number" step="0.01" value="{{ defaults.daily_pct }}" class="form-control">
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label">Monte Carlo runs</label>
+          <input name="mc" type="number" value="{{ defaults.mc }}" class="form-control">
+        </div>
+
+        <div class="col-12">
+          <div class="form-check">
+            <input class="form-check-input" id="reinvest" name="reinvest" type="checkbox" {% if defaults.reinvest %}checked{% endif %}>
+            <label class="form-check-label" for="reinvest">
+              Reinvest after first block
+            </label>
+            <div class="form-text">Adds a Monte Carlo overlay curve.</div>
+          </div>
+        </div>
+
+        <div class="col-12 col-md-4">
+          <label class="form-label">Reinvest multiplier</label>
+          <input id="reinvest-mult" name="reinvest_multiplier" type="number" step="0.1" value="{{ defaults.reinvest_multiplier }}" class="form-control">
+          <div class="form-text">Example: 2.0 doubles hashrate after the first block.</div>
         </div>
       </div>
-      <div class="actions">
-        <button type="submit">Join waitlist</button>
+
+      <div class="mt-3">
+        <button type="submit" class="btn btn-primary">Generate share link</button>
       </div>
     </form>
+
+    <div class="card p-3">
+      <h2 class="h5 mb-2">Early access</h2>
+      <p class="text-body-secondary mb-3">
+        If you want long-horizon modeling, reinvestment scenarios, or higher Monte Carlo limits, join the list.
+      </p>
+
+      <form method="post" action="/waitlist">
+        <div class="row g-3 align-items-end">
+          <div class="col-12 col-md-6">
+            <label class="form-label">Email</label>
+            <input name="email" type="email" placeholder="you@example.com" required class="form-control">
+          </div>
+
+          <!-- Honeypot -->
+          <div style="position:absolute; left:-9999px; top:-9999px;">
+            <label>Company</label>
+            <input name="company" type="text" autocomplete="off">
+          </div>
+
+          <div class="col-12 col-md-auto">
+            <button type="submit" class="btn btn-outline-primary">Join waitlist</button>
+          </div>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script>
