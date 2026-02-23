@@ -73,6 +73,20 @@ a:hover {
   min-width: 220px;
 }
 
+/* Checkbox fields shouldn't baseline-align with text inputs */
+.field-check {
+  align-self: flex-start;
+}
+
+/* Make the checkbox row fill the field width like other controls */
+.checkline {
+  display: flex;              /* was inline-flex */
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.2rem;
+  width: 100%;
+}
+
 label {
   display: block;
   font-size: 0.9rem;
@@ -94,14 +108,6 @@ input:not([type="checkbox"]):focus,
 select:focus {
   outline: none;
   border-color: #999;
-}
-
-/* Checkbox row alignment */
-.checkline {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 2.2rem; /* roughly matches other controls */
 }
 
 .checkline input[type="checkbox"] {
@@ -203,8 +209,6 @@ code {
 .share-box a:hover {
   text-decoration: underline;
 }
-
-canvas#curve { width: 100%; height: 260px; }
 
 .chart-wrap {
   position: relative;
