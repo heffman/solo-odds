@@ -179,6 +179,8 @@ code {
   text-decoration: underline;
 }
 
+canvas#curve { width: 100%; height: 260px; }
+
 /* --- Responsive tweaks --- */
 
 @media (max-width: 600px) {

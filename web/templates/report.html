@@ -114,36 +114,51 @@
     </table>
   </div>
 
-  <script>
+<script>
+  (function () {
+    const canvas = document.getElementById('curve');
+    if (!canvas) {
+      console.error('Curve canvas not found');
+      return;
+    }
+
     const points = {{ curve|tojson }};
+    if (!points || points.length === 0) {
+      console.warn('No curve points to chart');
+      return;
+    }
+
     const labels = points.map(p => p.day);
-    const series = points.map(p => p.expected_blocks);
+    const baseline = points.map(p => p.expected_blocks);
 
     const datasets = [{
       label: 'Baseline (analytic) — expected blocks',
-      data: series,
+      data: baseline,
       tension: 0.2
     }];
 
     {% if reinvest and reinvest.enabled %}
     const reinvestPoints = {{ reinvest.points|tojson }};
-    const reinvestSeries = reinvestPoints.map(p => p.expected_blocks);
-    datasets.push({
-      label: 'Reinvest after first block (MC) — expected blocks',
-      data: reinvestSeries,
-      tension: 0.2
-    });
+    if (reinvestPoints && reinvestPoints.length > 0) {
+      const reinvestSeries = reinvestPoints.map(p => p.expected_blocks);
+      datasets.push({
+        label: 'Reinvest after first block (MC) — expected blocks',
+        data: reinvestSeries,
+        tension: 0.2
+      });
+    }
     {% endif %}
 
-    new Chart(ctx, {
+    // Chart.js accepts either the canvas element or a 2D context.
+    new Chart(canvas, {
       type: 'line',
       data: { labels, datasets },
       options: {
         responsive: true,
+        maintainAspectRatio: false,
         scales: {
           y: {
             title: { display: true, text: 'Expected blocks' }
-            // no fixed min/max; let it scale
           }
         }
       }
@@ -151,16 +166,21 @@
 
     const btn = document.getElementById('copy-link');
     const status = document.getElementById('copy-status');
-    btn.addEventListener('click', async () => {
-      const url = `${window.location.origin}/r/{{ token }}`;
-      try {
-        await navigator.clipboard.writeText(url);
-        status.textContent = 'Copied.';
-        setTimeout(() => { status.textContent = ''; }, 1500);
-      } catch (e) {
-        window.prompt('Copy this link:', url);
-      }
-    });
-  </script>
+    if (btn) {
+      btn.addEventListener('click', async () => {
+        const url = `${window.location.origin}/r/{{ token }}`;
+        try {
+          await navigator.clipboard.writeText(url);
+          if (status) {
+            status.textContent = 'Copied.';
+            setTimeout(() => { status.textContent = ''; }, 1500);
+          }
+        } catch (e) {
+          window.prompt('Copy this link:', url);
+        }
+      });
+    }
+  })();
+</script>
 </body>
 </html>
