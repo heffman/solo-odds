@@ -7,15 +7,26 @@
   <style>
     body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
     .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .nav { display:flex; gap: 1rem; margin: 0.5rem 0 1rem 0; }
     label { display:block; font-size: 0.9rem; margin-bottom: 0.25rem; }
     input, select { padding: 0.5rem; min-width: 220px; }
     button { padding: 0.6rem 1rem; }
     .card { border: 1px solid #ddd; padding: 1rem; border-radius: 8px; }
+    .muted { color: #666; }
   </style>
 </head>
 <body>
   <h1>Solo Odds</h1>
+  <div class="nav">
+    <a href="/methods">Methods</a>
+  </div>
   <p>Generate a signed, shareable link for a solo mining odds report.</p>
+
+  {% if request.query_params.get('ok') == '1' %}
+    <p class="muted">Waitlist: saved.</p>
+  {% elif request.query_params.get('ok') == '0' %}
+    <p class="muted">Waitlist: invalid email.</p>
+  {% endif %}
 
   <form method="post" action="/share" class="card">
     <div class="row">
@@ -76,5 +87,28 @@
       <button type="submit">Generate share link</button>
     </div>
   </form>
+
+  <div class="card" style="margin-top:1rem;">
+    <h2 style="margin-top:0;">Early access</h2>
+    <p class="muted" style="margin-top:0;">
+      If you want long-horizon modeling, reinvestment scenarios, or higher Monte Carlo limits, join the list.
+    </p>
+    <form method="post" action="/waitlist">
+      <div class="row">
+        <div>
+          <label>Email</label>
+          <input name="email" type="email" placeholder="you@example.com" required>
+        </div>
+        <!-- Honeypot (hidden). Bots tend to fill it. Humans won't see it. -->
+        <div style="position:absolute; left:-9999px; top:-9999px;">
+          <label>Company</label>
+          <input name="company" type="text" autocomplete="off">
+        </div>
+      </div>
+      <div style="margin-top:1rem;">
+        <button type="submit">Join waitlist</button>
+      </div>
+    </form>
+  </div>
 </body>
 </html>

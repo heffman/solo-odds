@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -24,6 +25,19 @@ from solo_odds.units import UnitParseError, parse_hashrate
 app = FastAPI(title='solo-odds web')
 templates = Jinja2Templates(directory='web/templates')
 app.mount('/static', StaticFiles(directory='web/static'), name='static')
+
+
+def _repo_root() -> Path:
+    # WorkingDirectory for systemd should be repo root; this is a safe fallback.
+    return Path(__file__).resolve().parents[1]
+
+
+def _waitlist_path() -> Path:
+    # Optional override via env; default to <repo>/var/waitlist.txt
+    p = os.environ.get('SOLO_ODDS_WAITLIST_PATH')
+    if p:
+        return Path(p)
+    return _repo_root() / 'var' / 'waitlist.txt'
 
 
 def _now_utc_iso() -> str:
@@ -224,6 +238,42 @@ def index(request: Request) -> HTMLResponse:
             },
         },
     )
+
+
+@app.get('/methods', response_class=HTMLResponse)
+def methods(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse('methods.html', {'request': request})
+
+
+@app.post('/waitlist')
+def waitlist(
+    request: Request,
+    email: str = Form(...),
+    company: str = Form('', alias='company'),  # honeypot field: should be empty
+) -> RedirectResponse:
+    # Honeypot: bots fill hidden fields
+    if company and company.strip():
+        return RedirectResponse(url='/?ok=1', status_code=303)
+
+    e = (email or '').strip()
+    if not e or len(e) > 254 or '@' not in e:
+        return RedirectResponse(url='/?ok=0', status_code=303)
+
+    ts = _now_utc_iso()
+    path = _waitlist_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # One line per signup: timestamp<TAB>email
+    with open(path, 'a', encoding='utf-8') as f:
+        f.write(f'{ts}\t{e}\n')
+
+    return RedirectResponse(url='/?ok=1', status_code=303)
+
+
+@app.get('/robots.txt')
+def robots() -> HTMLResponse:
+    # Keep token pages out of search engines.
+    body = "User-agent: *\nDisallow: /r/\nDisallow: /api/\n"
+    return HTMLResponse(content=body, media_type='text/plain')
 
 
 @app.post('/share')

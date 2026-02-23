@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Solo Odds Methods</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; line-height: 1.4; }
+    .card { border: 1px solid #ddd; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+    code { background: #f6f6f6; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    a { text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>Methods</h1>
+
+  <div class="card">
+    <p><a href="/">← Back</a></p>
+    <p>
+      Solo Odds models solo block-finding as a <strong>Poisson process</strong>.
+      It is a variance model, not a profit calculator.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Core model</h2>
+    <ul>
+      <li>Let λ be your expected blocks per day.</li>
+      <li>Over a horizon with integrated intensity μ, block count K ~ Poisson(μ).</li>
+      <li>P(≥1) = 1 - e<sup>-μ</sup> and P(0) = e<sup>-μ</sup>.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Drift</h2>
+    <p>
+      Drift models network growth as a deterministic change to λ over time:
+    </p>
+    <ul>
+      <li><code>flat</code>: constant λ</li>
+      <li><code>step</code>: λ increases by a fixed percent every N days</li>
+      <li><code>linear</code>: λ increases by a fixed percent daily</li>
+    </ul>
+    <p>
+      When drift is enabled, the horizon is split into segments and μ is the sum of segment μ values.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Monte Carlo</h2>
+    <p>
+      Monte Carlo simulates block counts by sampling a Poisson draw per segment and aggregating across the horizon.
+      Time-to-first-block is estimated from simulated first arrivals inside segments.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Data sources</h2>
+    <p>
+      Network snapshots are fetched from public APIs and cached locally as <code>data/&lt;coin&gt;/latest.json</code>.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Non-goals</h2>
+    <ul>
+      <li>Profitability modeling (electricity, fees, pool payout variance)</li>
+      <li>Hardware monitoring (temps, fan, uptime)</li>
+      <li>Financial advice</li>
+    </ul>
+  </div>
+</body>
+</html>
