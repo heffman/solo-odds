@@ -73,7 +73,9 @@
 
   <div class="card">
     <h2>Curve: expected blocks (μ) vs days</h2>
-    <canvas id="curve" height="120"></canvas>
+    <div class="chart-wrap">
+      <canvas id="curve"></canvas>
+    </div>
   </div>
 
   {% if report.monte_carlo.enabled %}
@@ -117,16 +119,10 @@
 <script>
   (function () {
     const canvas = document.getElementById('curve');
-    if (!canvas) {
-      console.error('Curve canvas not found');
-      return;
-    }
+    if (!canvas) return;
 
     const points = {{ curve|tojson }};
-    if (!points || points.length === 0) {
-      console.warn('No curve points to chart');
-      return;
-    }
+    if (!points || points.length === 0) return;
 
     const labels = points.map(p => p.day);
     const baseline = points.map(p => p.expected_blocks);
@@ -140,30 +136,31 @@
     {% if reinvest and reinvest.enabled %}
     const reinvestPoints = {{ reinvest.points|tojson }};
     if (reinvestPoints && reinvestPoints.length > 0) {
-      const reinvestSeries = reinvestPoints.map(p => p.expected_blocks);
       datasets.push({
         label: 'Reinvest after first block (MC) — expected blocks',
-        data: reinvestSeries,
+        data: reinvestPoints.map(p => p.expected_blocks),
         tension: 0.2
       });
     }
     {% endif %}
 
-    // Chart.js accepts either the canvas element or a 2D context.
-    new Chart(canvas, {
+    // Prevent multiple charts stacking on the same canvas
+    if (window.__soloOddsCurveChart) {
+      window.__soloOddsCurveChart.destroy();
+      window.__soloOddsCurveChart = null;
+    }
+
+    window.__soloOddsCurveChart = new Chart(canvas, {
       type: 'line',
       data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        scales: {
-          y: {
-            title: { display: true, text: 'Expected blocks' }
-          }
-        }
+        animation: false
       }
     });
 
+    // Copy button handler (unchanged)
     const btn = document.getElementById('copy-link');
     const status = document.getElementById('copy-status');
     if (btn) {
