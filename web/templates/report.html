@@ -14,6 +14,26 @@
     .row { display:flex; gap: 1rem; flex-wrap: wrap; }
     .metric { min-width: 260px; }
     button { padding: 0.4rem 0.7rem; }
+
+    /* NEW: share link layout + long token wrapping */
+    .share-grid { display: grid; gap: 0.75rem; }
+    .share-line { display:flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .share-box {
+      display: inline-block;
+      max-width: 100%;
+      padding: 0.35rem 0.5rem;
+      border-radius: 6px;
+      background: #f6f6f6;
+      border: 1px solid #eee;
+
+      /* critical for long tokens */
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
+    }
+    .share-box a { color: inherit; text-decoration: none; }
+    .share-box a:hover { text-decoration: underline; }
+    .muted { color: #666; font-size: 0.9rem; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
@@ -24,13 +44,28 @@
     <a href="/methods">Methods</a>
   </div>
   <div class="card">
-    <div><strong>Share link:</strong> <code>/r/{{ token }}</code></div>
-    <div><strong>JSON API:</strong> <a href="{{ api_url }}">{{ api_url }}</a></div>
-    <div style="margin-top:0.75rem;">
-      <button id="copy-link">Copy share link</button>
-      <span id="copy-status" style="margin-left:0.5rem;"></span>
+  <div class="share-grid">
+    <div class="share-line">
+      <strong>Share link:</strong>
+      <span class="share-box">
+        <a href="/r/{{ token }}">/r/{{ token }}</a>
+      </span>
+      <button id="copy-link" type="button">Copy</button>
+      <span id="copy-status" class="muted"></span>
+    </div>
+
+    <div class="share-line">
+      <strong>JSON API:</strong>
+      <span class="share-box">
+        <a href="{{ api_url }}">{{ api_url }}</a>
+      </span>
+    </div>
+
+    <div class="muted">
+      Snapshot frozen at: {{ report.network_snapshot.timestamp }}
     </div>
   </div>
+</div>
 
   <div class="card row">
     <div class="metric">
