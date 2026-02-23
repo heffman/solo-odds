@@ -78,13 +78,29 @@ a:hover {
   align-self: flex-start;
 }
 
-/* Make the checkbox row fill the field width like other controls */
+/* Checkbox row alignment (use label as the flex container) */
 .checkline {
-  display: flex;              /* was inline-flex */
+  display: flex;              /* overrides global label { display:block } */
   align-items: center;
   gap: 0.5rem;
   min-height: 2.2rem;
   width: 100%;
+  margin: 0;                  /* kill label spacing */
+  cursor: pointer;
+}
+
+.checkline input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.checkline span {
+  font-size: 0.95rem;
+  line-height: 1.2;
 }
 
 label {
@@ -109,22 +125,6 @@ select:focus {
   outline: none;
   border-color: #999;
 }
-
-.checkline input[type="checkbox"] {
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-}
-
-.checkline label {
-  display: inline;
-  margin: 0;
-  font-size: 0.95rem;
-  line-height: 1.2;
-}
-
 
 button {
   padding: 0.6rem 1rem;
