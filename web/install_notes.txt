@@ -39,3 +39,25 @@ sudo grep -E 'GET /r/' /var/log/nginx/access.log | wc -l
 Waitlist posts (FastAPI runs behind nginx, so easiest is systemd logs):
 
 journalctl -u solo-odds-web --since "today" | grep waitlist | wc -l
+
+To check 50 shares links generated:
+
+Assuming default metrics path: var/metrics.jsonl under your repo root.
+
+Count share link generation events:
+
+grep -c '"event":"share_created"' var/metrics.jsonl
+
+(Or with absolute path if you prefer: /srv/solo-odds/var/metrics.jsonl.)
+
+Count report views:
+
+grep -c '"event":"report_view"' var/metrics.jsonl
+
+Top referrers:
+
+jq -r 'select(.event=="report_view") | .meta.ref // ""' var/metrics.jsonl | sort | uniq -c | sort -nr | head
+
+If you don’t have jq installed:
+
+grep '"event":"report_view"' var/metrics.jsonl | sed -n 's/.*"ref":"\([^"]*\)".*/\1/p' | sort | uniq -c | 

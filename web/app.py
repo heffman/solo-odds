@@ -51,6 +51,14 @@ def _now_utc_iso() -> str:
     return datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
 
 
+def _metrics_path() -> Path:
+    # Optional override via env; default to <repo>/var/metrics.jsonl
+    p = os.environ.get('SOLO_ODDS_METRICS_PATH')
+    if p:
+        return Path(p)
+    return _repo_root() / 'var' / 'metrics.jsonl'
+
+
 class ShareParams(BaseModel):
     coin: str = Field(pattern='^(btc|bch)$')
     hashrate: str = Field(min_length=1)  # e.g. "9.4TH"
@@ -70,6 +78,51 @@ class TokenPayloadV2(BaseModel):
     params: ShareParams
     # Store full snapshot dict (includes 'coin'); we validate via NetworkSnapshot.from_dict().
     snapshot: Dict[str, Any]
+
+
+def _append_metrics(event: Dict[str, Any]) -> None:
+    """
+    Append one JSONL event to disk.
+    Never throw back to the user if logging fails.
+    """
+    try:
+        path = _metrics_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(event, separators=(',', ':'), sort_keys=True)
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(line + '\n')
+    except Exception:
+        # Intentionally swallow: metrics must not break the app.
+        return
+
+
+def _request_meta(request: Request) -> Dict[str, Any]:
+    """
+    Minimal request metadata, best-effort. Useful for referrers/shares.
+    """
+    ip = None
+    try:
+        if request.client:
+            ip = request.client.host
+    except Exception:
+        ip = None
+
+    # If you’re behind nginx, you may want X-Forwarded-For; include it too.
+    xff = request.headers.get('x-forwarded-for')
+    ua = request.headers.get('user-agent')
+    ref = request.headers.get('referer')
+
+    return {
+        'ip': ip,
+        'xff': xff,
+        'ua': ua,
+        'ref': ref,
+    }
+
+
+def _token_fingerprint(token: str) -> str:
+    # Avoid logging gigantic tokens raw. Stable fingerprint for joins.
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()[:16]
 
 
 def _secret() -> bytes:
@@ -446,6 +499,7 @@ def robots() -> HTMLResponse:
 
 @app.post('/share')
 def share(
+    request: Request,
     coin: str = Form(...),
     hashrate: str = Form(...),
     days: int = Form(...),
@@ -472,6 +526,8 @@ def share(
         reinvest_multiplier=float(reinvest_multiplier),
     )
 
+    meta = _request_meta(request)
+
     # Freeze snapshot into token (v2)
     store = SnapshotStore.from_repo_root()
     snapshot = store.read_latest(params.coin)
@@ -482,6 +538,28 @@ def share(
         'snapshot': snapshot.to_dict(),
     }
     token = make_token(token_payload)
+
+    # Metrics: share link generated
+    _append_metrics(
+        {
+            'ts': _now_utc_iso(),
+            'event': 'share_created',
+            'token_fp': _token_fingerprint(token),
+            'coin': params.coin,
+            'hashrate': params.hashrate,
+            'days': params.days,
+            'interval_days': params.interval_days,
+            'drift': params.drift,
+            'step_pct': params.step_pct,
+            'step_days': params.step_days,
+            'daily_pct': params.daily_pct,
+            'mc': params.mc,
+            'reinvest': params.reinvest,
+            'reinvest_multiplier': params.reinvest_multiplier,
+            'meta': meta,
+        }
+    )
+
     return RedirectResponse(url=f'/r/{token}', status_code=303)
 
 
@@ -496,6 +574,20 @@ def render_report(token: str, request: Request) -> HTMLResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail='Internal error') from exc
+
+    # Metrics: report viewed
+    _append_metrics(
+        {
+            'ts': _now_utc_iso(),
+            'event': 'report_view',
+            'token_fp': _token_fingerprint(token),
+            'coin': params.coin,
+            'days': params.days,
+            'drift': params.drift,
+            'mc': params.mc,
+            'meta': _request_meta(request),
+        }
+    )
 
     curve = report.pop('_curve', [])
     reinvest = report.pop('_reinvest', None)
