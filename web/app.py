@@ -917,6 +917,7 @@ def api_compare(req: CompareRequest) -> JSONResponse:
                 'electricity_cost_per_kwh': req.electricity_cost_per_kwh,
                 'asic_power_watts': req.asic_power_watts,
                 'pool_fee_pct': req.pool_fee_pct,
+                'mc_runs': req.mc_runs,
             },
             'network_snapshot': _network_snapshot_to_report(snapshot),
             'mu': res.mu,
@@ -927,5 +928,5 @@ def api_compare(req: CompareRequest) -> JSONResponse:
             'comparison': res.comparison,
         }
         return JSONResponse(payload)
-    except (UnitParseError, AnalyticError, SnapshotStoreError, EconomicCompareError) as exc:
+    except (UnitParseError, AnalyticError, EconomicCompareError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
