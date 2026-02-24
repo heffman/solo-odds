@@ -238,148 +238,151 @@
       label: 'P(≥1 block) (analytic)',
       data: baselineSeries,
       tension: 0.2,
-      pointRadius: 0
+      pointRadius: 0,
+      yAxisID: 'y'
     }];
 
     {% if reinvest and reinvest.enabled %}
     const reinvestPoints = {{ reinvest.points|tojson }};
     if (reinvestPoints && reinvestPoints.length > 0) {
       datasets.push({
-        label: 'Reinvest after first block (MC) — P(≥1)',
-        data: reinvestPoints.map(p => ({ x: Number(p.day), y: Number(p.probability_at_least_one) })),
+        // Reinvest does NOT change P(≥1). Plot expected blocks instead.
+        label: 'Reinvest after first block (MC) — expected blocks',
+        data: reinvestPoints.map(p => ({ x: Number(p.day), y: Number(p.expected_blocks) })),
         tension: 0.2,
-        pointRadius: 0
+        pointRadius: 0,
+        yAxisID: 'y2'
       });
     }
     {% endif %}
 
     let t10 = Number({{ report.analytic.time_to_first_block_days.p10|tojson }});
-let t50 = Number({{ report.analytic.time_to_first_block_days.p50|tojson }});
-let t90 = Number({{ report.analytic.time_to_first_block_days.p90|tojson }});
+    let t50 = Number({{ report.analytic.time_to_first_block_days.p50|tojson }});
+    let t90 = Number({{ report.analytic.time_to_first_block_days.p90|tojson }});
 
-// Plot x-range
-const xMin = Math.min(...baselineSeries.map(p => p.x));
-const xMax = Math.max(...baselineSeries.map(p => p.x));
+    // Plot x-range
+    const xMin = Math.min(...baselineSeries.map(p => p.x));
+    const xMax = Math.max(...baselineSeries.map(p => p.x));
 
-const clamp = (v) => Math.min(xMax, Math.max(xMin, v));
+    const clamp = (v) => Math.min(xMax, Math.max(xMin, v));
 
-const t10Finite = Number.isFinite(t10);
-const t50Finite = Number.isFinite(t50);
-const t90Finite = Number.isFinite(t90);
-
-const t10c = t10Finite ? clamp(t10) : null;
-const t90c = t90Finite ? clamp(t90) : null;
-
-// Detect clipping so we can annotate and avoid misleading lines.
-const p10ClippedLow  = t10Finite && t10 < xMin;
-const p50ClippedHigh = t50Finite && t50 > xMax;
-const p90ClippedHigh = t90Finite && t90 > xMax;
-
-// Only draw median line if it's actually within the plotted window (not clipped)
-const t50c = (t50Finite && t50 >= xMin && t50 <= xMax) ? t50 : null;
-
-const t1VizPlugin = {
-  id: 't1VizPlugin',
-  afterDatasetsDraw(chart) {
-    const { ctx, chartArea, scales } = chart;
-    const xScale = scales.x;
-    const yScale = scales.y;
-    if (!xScale || !yScale || !chartArea) return;
-
-    const xMaxLocal = xMax; // from outer scope
     const t10Finite = Number.isFinite(t10);
     const t50Finite = Number.isFinite(t50);
     const t90Finite = Number.isFinite(t90);
 
-    // If t10 is within horizon, show the vertical band in x.
-    const showVerticalBand = t10Finite && t10 <= xMaxLocal;
+    const t10c = t10Finite ? clamp(t10) : null;
+    const t90c = t90Finite ? clamp(t90) : null;
 
-    ctx.save();
+    // Detect clipping so we can annotate and avoid misleading lines.
+    const p10ClippedLow  = t10Finite && t10 < xMin;
+    const p50ClippedHigh = t50Finite && t50 > xMax;
+    const p90ClippedHigh = t90Finite && t90 > xMax;
 
-    // Shared styling
-    ctx.fillStyle = 'rgba(13,110,253,0.12)';
-    ctx.strokeStyle = 'rgba(13,110,253,0.55)';
-    ctx.lineWidth = 1;
+    // Only draw median line if it's actually within the plotted window (not clipped)
+    const t50c = (t50Finite && t50 >= xMin && t50 <= xMax) ? t50 : null;
 
-    if (showVerticalBand) {
-      // Clamp just in case
-      const t10c = clamp(t10);
-      const t90c = t90Finite ? clamp(t90) : xMaxLocal;
+    const t1VizPlugin = {
+      id: 't1VizPlugin',
+      afterDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale || !chartArea) return;
 
-      const x10 = xScale.getPixelForValue(t10c);
-      const x90 = xScale.getPixelForValue(t90c);
+        const xMaxLocal = xMax; // from outer scope
+        const t10Finite = Number.isFinite(t10);
+        const t50Finite = Number.isFinite(t50);
+        const t90Finite = Number.isFinite(t90);
 
-      const left = Math.min(x10, x90);
-      const width = Math.abs(x90 - x10);
+        // If t10 is within horizon, show the vertical band in x.
+        const showVerticalBand = t10Finite && t10 <= xMaxLocal;
 
-      // Band
-      ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
-      ctx.globalAlpha = 0.8;
-      ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
-      ctx.globalAlpha = 1;
+        ctx.save();
 
-      // Median line only if it’s within horizon
-      if (t50Finite && t50 >= xMin && t50 <= xMaxLocal) {
-        const x50 = xScale.getPixelForValue(t50);
-        ctx.beginPath();
-        ctx.moveTo(x50, chartArea.top);
-        ctx.lineTo(x50, chartArea.bottom);
-        ctx.stroke();
-      } else {
-        // Annotate that median is beyond horizon
-        ctx.fillStyle = 'rgba(0,0,0,0.65)';
-        ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-        ctx.fillText('p50/p90 beyond horizon', chartArea.left + 8, chartArea.top + 14);
+        // Shared styling
+        ctx.fillStyle = 'rgba(13,110,253,0.12)';
+        ctx.strokeStyle = 'rgba(13,110,253,0.55)';
+        ctx.lineWidth = 1;
+
+        if (showVerticalBand) {
+          // Clamp just in case
+          const t10c = clamp(t10);
+          const t90c = t90Finite ? clamp(t90) : xMaxLocal;
+
+          const x10 = xScale.getPixelForValue(t10c);
+          const x90 = xScale.getPixelForValue(t90c);
+
+          const left = Math.min(x10, x90);
+          const width = Math.abs(x90 - x10);
+
+          // Band
+          ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+          ctx.globalAlpha = 0.8;
+          ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+          ctx.globalAlpha = 1;
+
+          // Median line only if it’s within horizon
+          if (t50Finite && t50 >= xMin && t50 <= xMaxLocal) {
+            const x50 = xScale.getPixelForValue(t50);
+            ctx.beginPath();
+            ctx.moveTo(x50, chartArea.top);
+            ctx.lineTo(x50, chartArea.bottom);
+            ctx.stroke();
+          } else {
+            // Annotate that median is beyond horizon
+            ctx.fillStyle = 'rgba(0,0,0,0.65)';
+            ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+            ctx.fillText('p50/p90 beyond horizon', chartArea.left + 8, chartArea.top + 14);
+          }
+
+        } else {
+          // If t10 is beyond the horizon, vertical band is meaningless.
+          // Draw horizontal probability thresholds at 10%, 50%, 90%.
+          const probs = [
+            { p: 0.10, label: '10%' },
+            { p: 0.50, label: '50%' },
+            { p: 0.90, label: '90%' },
+          ];
+
+          // light tint behind 10–90
+          const y10 = yScale.getPixelForValue(0.10);
+          const y90 = yScale.getPixelForValue(0.90);
+          ctx.fillRect(
+            chartArea.left,
+            Math.min(y10, y90),
+            chartArea.right - chartArea.left,
+            Math.abs(y90 - y10)
+          );
+
+          // lines + labels
+          ctx.fillStyle = 'rgba(0,0,0,0.65)';
+          ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+
+          probs.forEach(({ p, label }) => {
+            const y = yScale.getPixelForValue(p);
+
+            // 50% line slightly stronger
+            ctx.strokeStyle = (p === 0.50) ? 'rgba(13,110,253,0.85)' : 'rgba(13,110,253,0.55)';
+            ctx.setLineDash(p === 0.50 ? [] : [4, 4]);
+
+            ctx.beginPath();
+            ctx.moveTo(chartArea.left, y);
+            ctx.lineTo(chartArea.right, y);
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+
+            // label on left
+            ctx.fillText(`T₁ ${label}`, chartArea.left + 8, y - 6);
+          });
+
+          // note
+          ctx.fillText('T₁ p10/p50/p90 exceed horizon', chartArea.left + 8, chartArea.top + 14);
+        }
+
+        ctx.restore();
       }
-
-    } else {
-      // If t10 is beyond the horizon, vertical band is meaningless.
-      // Draw horizontal probability thresholds at 10%, 50%, 90%.
-      const probs = [
-        { p: 0.10, label: '10%' },
-        { p: 0.50, label: '50%' },
-        { p: 0.90, label: '90%' },
-      ];
-
-      // light tint behind 10–90
-      const y10 = yScale.getPixelForValue(0.10);
-      const y90 = yScale.getPixelForValue(0.90);
-      ctx.fillRect(
-        chartArea.left,
-        Math.min(y10, y90),
-        chartArea.right - chartArea.left,
-        Math.abs(y90 - y10)
-      );
-
-      // lines + labels
-      ctx.fillStyle = 'rgba(0,0,0,0.65)';
-      ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-
-      probs.forEach(({ p, label }) => {
-        const y = yScale.getPixelForValue(p);
-
-        // 50% line slightly stronger
-        ctx.strokeStyle = (p === 0.50) ? 'rgba(13,110,253,0.85)' : 'rgba(13,110,253,0.55)';
-        ctx.setLineDash(p === 0.50 ? [] : [4, 4]);
-
-        ctx.beginPath();
-        ctx.moveTo(chartArea.left, y);
-        ctx.lineTo(chartArea.right, y);
-        ctx.stroke();
-
-        ctx.setLineDash([]);
-
-        // label on left
-        ctx.fillText(`T₁ ${label}`, chartArea.left + 8, y - 6);
-      });
-
-      // note
-      ctx.fillText('T₁ p10/p50/p90 exceed horizon', chartArea.left + 8, chartArea.top + 14);
-    }
-
-    ctx.restore();
-  }
-};
+    };
 
     if (window.__soloOddsCurveChart) {
       window.__soloOddsCurveChart.destroy();
@@ -405,7 +408,13 @@ const t1VizPlugin = {
             title: { display: true, text: 'P(≥1 block)' },
             min: 0,
             max: 1
-          }
+          },
+          y2: {
+              position: 'right',
+              title: { display: true, text: 'Expected blocks (reinvest)' },
+              grid: { drawOnChartArea: false },
+              min: 0
+            }
         },
         plugins: { legend: { display: true } }
       },
