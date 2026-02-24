@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import os
 from pathlib import Path
 from datetime import datetime, timezone
@@ -158,6 +159,47 @@ def _network_snapshot_to_report(snapshot) -> Dict[str, Any]:
     }
 
 
+def _poisson_quantile(mu: float, q: float) -> int:
+    """
+    Small, dependency-free Poisson quantile (inverse CDF).
+
+    Returns the smallest integer k such that P(X <= k) >= q for X ~ Poisson(mu).
+
+    Uses stable recurrence:
+      p0 = exp(-mu)
+      p_{k+1} = p_k * mu / (k+1)
+
+    This is plenty fast for typical home-mining mu and horizons.
+    """
+    if not math.isfinite(mu) or mu < 0:
+        raise ValueError(f'Invalid mu={mu!r}')
+    if q <= 0:
+        return 0
+    if q >= 1:
+        # "infinite" quantile isn't meaningful; return a safe upper-ish bound
+        if mu == 0:
+            return 0
+        return int(math.ceil(mu + 10.0 * math.sqrt(mu) + 50.0))
+    if mu == 0:
+        return 0
+
+    # Start at k=0
+    p = math.exp(-mu)
+    cdf = p
+    k = 0
+
+    # Set a conservative max to avoid pathological loops if q is extreme.
+    # For typical mu, this exits quickly.
+    k_max = int(math.ceil(mu + 12.0 * math.sqrt(mu + 1.0) + 200.0))
+
+    while cdf < q and k < k_max:
+        k += 1
+        p = p * mu / k
+        cdf += p
+
+    return k
+
+
 def _compute_curve_points(
     *,
     base_lambda_per_day: float,
@@ -173,12 +215,21 @@ def _compute_curve_points(
             drift=drift_model,
         )
         res = analyze_segments(segments)
+
+        mu = float(res.expected_blocks)
+        p10_blocks = _poisson_quantile(mu, 0.10)
+        p50_blocks = _poisson_quantile(mu, 0.50)
+        p90_blocks = _poisson_quantile(mu, 0.90)
+
         points.append(
             {
                 'day': horizon,
                 'expected_blocks': res.expected_blocks,
                 'probability_at_least_one': res.probability_at_least_one,
                 'probability_zero': res.probability_zero_blocks,
+                'blocks_p10': p10_blocks,
+                'blocks_p50': p50_blocks,
+                'blocks_p90': p90_blocks,
             }
         )
     return points
@@ -216,6 +267,16 @@ def build_report(
     )
     analytic_res = analyze_segments(segments)
 
+    # Time-to-first-block (mean/median) under effective constant-rate approximation.
+    # This matches the semantics of your existing analytic time_to_first_block_days block.
+    effective_lambda = float(analytic_res.lambda_per_day_effective)
+    if effective_lambda > 0.0:
+        t1_mean_days = 1.0 / effective_lambda
+        t1_median_days = math.log(2.0) / effective_lambda
+    else:
+        t1_mean_days = math.inf
+        t1_median_days = math.inf
+
     report: Dict[str, Any] = {
         'schema_version': 1,
         'generated_at': _now_utc_iso(),
@@ -246,6 +307,23 @@ def build_report(
                 {'k': k, 'probability': p} for k, p in analytic_res.block_distribution
             ],
             'time_to_first_block_days': analytic_res.time_to_first_block_days,
+            # Explicit mean/median callouts (more intuitive than "mean only")
+            'time_to_first_block_mean_days': t1_mean_days,
+            'time_to_first_block_median_days': t1_median_days,
+        },
+        # Structured summary block for downstream consumers
+        'summary': {
+            'time_to_first_block': {
+                'median_days': t1_median_days,
+                'mean_days': t1_mean_days,
+                'interpretation': {
+                    'median_probability': 0.5,
+                    'description': (
+                        'Median time represents the 50% probability threshold '
+                        'for first block discovery under the effective-rate model.'
+                    ),
+                },
+            },
         },
         'monte_carlo': {'enabled': False},
         'notes': [

@@ -89,6 +89,28 @@
             <div class="fw-semibold">{{ "%.6g"|format(report.analytic.probability_zero_blocks) }}</div>
           </div>
 
+          <!-- Time-to-first: show mean vs median side-by-side -->
+          <div class="col-12">
+            <div class="text-body-secondary small">Time to first block (days)</div>
+            <div class="d-flex flex-wrap gap-3">
+              <div>
+                <span class="text-body-secondary small">Median (T₁ p50):</span>
+                <span class="fw-semibold ms-1">{{ "%.6g"|format(report.analytic.time_to_first_block_median_days) }}</span>
+              </div>
+              <div>
+                <span class="text-body-secondary small">Mean:</span>
+                <span class="fw-semibold ms-1">{{ "%.6g"|format(report.analytic.time_to_first_block_mean_days) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-2 text-body-secondary small">
+            50% probability of first block by
+            <strong>{{ "%.6g"|format(report.analytic.time_to_first_block_median_days) }} days</strong>;
+            mean waiting time
+            <strong>{{ "%.6g"|format(report.analytic.time_to_first_block_mean_days) }} days</strong>.
+          </div>
+
           <div class="col-6 col-md-3">
             <div class="text-body-secondary small">T₁ p10 (days)</div>
             <div class="fw-semibold">{{ "%.6g"|format(report.analytic.time_to_first_block_days.p10) }}</div>
@@ -102,7 +124,7 @@
             <div class="fw-semibold">{{ "%.6g"|format(report.analytic.time_to_first_block_days.p90) }}</div>
           </div>
           <div class="col-6 col-md-3">
-            <div class="text-body-secondary small">T₁ mean (days)</div>
+            <div class="text-body-secondary small">T₁ mean (legacy)</div>
             <div class="fw-semibold">{{ "%.6g"|format(report.analytic.time_to_first_block_days.mean) }}</div>
           </div>
         </div>
@@ -112,7 +134,7 @@
     <!-- Curve -->
     <div class="card mb-3">
       <div class="card-body">
-        <h2 class="h5 mb-3">Curve: expected blocks (μ) vs days</h2>
+        <h2 class="h5 mb-3">Curve: expected blocks (μ) with variance band (p10–p90 blocks)</h2>
         <div class="chart-wrap">
           <canvas id="curve"></canvas>
         </div>
@@ -203,13 +225,32 @@
       if (!points || points.length === 0) return;
 
       const labels = points.map(p => p.day);
-      const baseline = points.map(p => p.expected_blocks);
+      const baselineMu = points.map(p => p.expected_blocks);
+      const p10Blocks = points.map(p => p.blocks_p10);
+      const p90Blocks = points.map(p => p.blocks_p90);
 
-      const datasets = [{
-        label: 'Baseline (analytic) — expected blocks',
-        data: baseline,
-        tension: 0.2
-      }];
+      const datasets = [
+        // Upper band first, then lower band with fill to previous dataset.
+        {
+          label: 'Blocks p90',
+          data: p90Blocks,
+          tension: 0.2,
+          pointRadius: 0
+        },
+        {
+          label: 'Blocks p10 (band)',
+          data: p10Blocks,
+          tension: 0.2,
+          fill: '-1',
+          pointRadius: 0
+        },
+        {
+          label: 'Expected blocks (μ)',
+          data: baselineMu,
+          tension: 0.2,
+          pointRadius: 0
+        }
+      ];
 
       {% if reinvest and reinvest.enabled %}
       const reinvestPoints = {{ reinvest.points|tojson }};
@@ -236,10 +277,16 @@
           animation: false,
           scales: {
             y: {
-              title: { display: true, text: 'Expected blocks' }
+              title: { display: true, text: 'Blocks' }
             },
             x: {
               title: { display: true, text: 'Days' }
+            }
+          },
+          plugins: {
+            legend: {
+              // Keep it readable: hide p10/p90 lines in legend if you want
+              // (leave visible for now; you can toggle later)
             }
           }
         }
