@@ -723,7 +723,7 @@ def compare_share(
     """
     Accepts FORM CompareParams and redirects to a shareable compare token page.
     """
-     params = CompareParams(
+    params = CompareParams(
         coin=coin.strip().lower(),
         hashrate=hashrate.strip(),
         horizon_days=int(horizon_days),
