@@ -165,15 +165,16 @@
     const res = await fetch('/api/v1/compare', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-       // /api/v1/compare doesn't accept mc_runs; keep it out.
-      body: JSON.stringify((() => {
-        const { mc_runs, ...rest } = payload;
-        return rest;
-      })())
+      body: JSON.stringify(payload)
     });
 
     if (!res.ok) {
-      alert('Error computing comparison.');
+      let detail = '';
+      try {
+        const err = await res.json();
+        detail = JSON.stringify(err, null, 2);
+      } catch (_) {}
+      alert(`Error computing comparison. HTTP ${res.status}\n\n${detail}`);
       return;
     }
 
