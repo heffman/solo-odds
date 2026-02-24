@@ -14,12 +14,13 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
-from solo_odds.data.store import SnapshotStore
+from solo_odds.data.store import SnapshotStore, SnapshotStoreError
 from solo_odds.data.models import NetworkSnapshot
 from solo_odds.math.analytic import AnalyticError, analyze_segments, compute_lambda_per_day
 from solo_odds.math.drift import DriftError, drift_model_from_cli, make_segments
+from solo_odds.math.economic_compare import compare_solo_vs_pool, EconomicCompareError
 from solo_odds.sim.monte_carlo import MonteCarloError, run_monte_carlo, run_reinvest_curve
 from solo_odds.units import UnitParseError, parse_hashrate
 
@@ -78,6 +79,38 @@ class TokenPayloadV2(BaseModel):
     params: ShareParams
     # Store full snapshot dict (includes 'coin'); we validate via NetworkSnapshot.from_dict().
     snapshot: Dict[str, Any]
+
+
+class CompareParams(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    coin: str = Field(pattern='^(btc|bch)$')
+    hashrate: str = Field(min_length=1)
+    horizon_days: int = Field(ge=1, le=3650)
+    coin_price_usd: float = Field(gt=0)
+    electricity_cost_per_kwh: float = Field(ge=0)
+    asic_power_watts: float = Field(ge=0)
+    pool_fee_pct: float = Field(ge=0, le=0.25)
+    mc_runs: int = Field(ge=0, le=200000)
+
+
+class CompareTokenPayloadV1(BaseModel):
+    v: int = Field(1)
+    params: CompareParams
+    snapshot: Dict[str, Any]
+    seed: int = Field(ge=0, le=2**32 - 1)
+
+
+class CompareRequest(BaseModel):
+    # For /api/v1/compare (non-tokenized endpoint)
+    model_config = ConfigDict(extra='forbid')
+    coin: str = Field(pattern='^(btc|bch)$')
+    hashrate: str = Field(min_length=1)
+    horizon_days: int = Field(ge=1, le=3650)
+    coin_price_usd: float = Field(gt=0)
+    electricity_cost_per_kwh: float = Field(ge=0)
+    asic_power_watts: float = Field(ge=0)
+    pool_fee_pct: float = Field(ge=0, le=0.25)
+    mc_runs: int = Field(ge=0, le=200000)
 
 
 def _append_metrics(event: Dict[str, Any]) -> None:
@@ -147,6 +180,11 @@ def make_token(params: Dict[str, Any]) -> str:
     return f'{_b64url_encode(payload)}.{_b64url_encode(sig)}'
 
 
+def make_token_from_obj(obj: Dict[str, Any]) -> str:
+    # identical signing, explicit name so we can reuse for compare payloads too
+    return make_token(obj)
+
+
 def parse_token(token: str) -> Dict[str, Any]:
     try:
         payload_b64, sig_b64 = token.split('.', 1)
@@ -196,6 +234,92 @@ def _parse_token_payload(raw: Dict[str, Any]) -> tuple[ShareParams, Optional[Net
     except Exception as exc:
         raise HTTPException(status_code=400, detail='Invalid token payload (v1)') from exc
     return params, None
+
+
+def _parse_compare_token_payload(raw: Dict[str, Any]) -> tuple[CompareParams, NetworkSnapshot, int]:
+    if not isinstance(raw, dict) or raw.get('v') != 1:
+        raise HTTPException(status_code=400, detail='Invalid compare token payload')
+
+    try:
+        payload = CompareTokenPayloadV1(**raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Invalid compare token payload (v1)') from exc
+
+    try:
+        snap = NetworkSnapshot.from_dict(payload.snapshot)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Invalid snapshot embedded in compare token') from exc
+
+    if snap.coin != payload.params.coin:
+        raise HTTPException(status_code=400, detail='Compare token snapshot coin mismatch')
+
+    return payload.params, snap, int(payload.seed)
+
+
+def _seed_for_payload(payload: Dict[str, Any]) -> int:
+    # deterministic seed so MC outputs don’t change between refreshes
+    b = json.dumps(payload, separators=(',', ':'), sort_keys=True).encode('utf-8')
+    h = hashlib.sha256(b).digest()
+    return int.from_bytes(h[:4], 'big', signed=False)
+
+
+def _compute_compare(params: CompareParams, snapshot: NetworkSnapshot, seed: int) -> Dict[str, Any]:
+    """
+    Compare math for tokenized compare pages.
+
+    Requirements:
+      - Use `snapshot` (frozen) rather than latest.json
+      - Deterministic output per token (seed available if you later add MC)
+    """
+    # TODO: Replace this placeholder with your real compare results.
+    # Keep the top-level structure stable so compare.html can render it.
+    hr = parse_hashrate(params.hashrate)
+
+    lambda_per_day = compute_lambda_per_day(
+        your_hashrate_hs=hr.hs,
+        network_hashrate_hs=snapshot.network_hashrate_hs,
+        blocks_per_day=snapshot.blocks_per_day,
+    )
+    mu = float(lambda_per_day) * float(params.horizon_days)
+
+    # Deterministic compare (no MC for v1 compare page; mc_runs kept for future)
+    res = compare_solo_vs_pool(
+        mu=mu,
+        block_reward=float(snapshot.block_reward),
+        coin_price_usd=float(params.coin_price_usd),
+        horizon_days=float(params.horizon_days),
+        asic_power_watts=float(params.asic_power_watts),
+        electricity_cost_per_kwh=float(params.electricity_cost_per_kwh),
+        pool_fee_pct=float(params.pool_fee_pct),
+    )
+
+    return {
+        'schema_version': 1,
+        'generated_at': _now_utc_iso(),
+        'input': {
+            'coin': params.coin,
+            'hashrate_hs': hr.hs,
+            'hashrate_display': hr.format(),
+            'horizon_days': params.horizon_days,
+            'coin_price_usd': params.coin_price_usd,
+            'electricity_cost_per_kwh': params.electricity_cost_per_kwh,
+            'asic_power_watts': params.asic_power_watts,
+            'pool_fee_pct': params.pool_fee_pct,
+            'mc_runs': params.mc_runs,
+        },
+        'network_snapshot': _network_snapshot_to_report(snapshot),
+        'mu': res.mu,
+        'revenue_per_block_usd': res.revenue_per_block_usd,
+        'electricity_cost_usd': res.electricity_cost_usd,
+        'solo': res.solo,
+        'pool': res.pool,
+        'comparison': res.comparison,
+        'notes': [
+            'Pool is modeled as expected value (deterministic) for v1 compare.',
+            'Solo is modeled as Poisson variance on blocks over the horizon.',
+            'Snapshot is frozen into the token for stable shared results.',
+        ],
+    }
 
 
 def _network_snapshot_to_report(snapshot) -> Dict[str, Any]:
@@ -466,6 +590,27 @@ def methods(request: Request) -> HTMLResponse:
     return templates.TemplateResponse('methods.html', {'request': request})
 
 
+@app.get('/compare', response_class=HTMLResponse)
+def compare_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        'compare.html',
+        {
+            'request': request,
+            'token_mode': False,
+            'defaults': {
+                'coin': 'bch',
+                'hashrate': '9.4TH',
+                'horizon_days': 365,
+                'coin_price_usd': 250.0,
+                'electricity_cost_per_kwh': 0.12,
+                'asic_power_watts': 3000,
+                'pool_fee_pct': 0.01,
+                'mc_runs': 0,
+            },
+        },
+    )
+
+
 @app.post('/waitlist')
 def waitlist(
     request: Request,
@@ -493,7 +638,7 @@ def waitlist(
 @app.get('/robots.txt')
 def robots() -> HTMLResponse:
     # Keep token pages out of search engines.
-    body = "User-agent: *\nDisallow: /r/\nDisallow: /api/\n"
+    body = "User-agent: *\nDisallow: /r/\nDisallow: /c/\nDisallow: /api/\n"
     return HTMLResponse(content=body, media_type='text/plain')
 
 
@@ -563,6 +708,120 @@ def share(
     return RedirectResponse(url=f'/r/{token}', status_code=303)
 
 
+@app.post('/compare/share')
+def compare_share(
+    request: Request,
+    coin: str = Form(...),
+    hashrate: str = Form(...),
+    horizon_days: int = Form(...),
+    coin_price_usd: float = Form(...),
+    electricity_cost_per_kwh: float = Form(...),
+    asic_power_watts: float = Form(...),
+    pool_fee_pct: float = Form(...),
+    mc_runs: int = Form(0),
+) -> RedirectResponse:
+    """
+    Accepts FORM CompareParams and redirects to a shareable compare token page.
+    """
+     params = CompareParams(
+        coin=coin.strip().lower(),
+        hashrate=hashrate.strip(),
+        horizon_days=int(horizon_days),
+        coin_price_usd=float(coin_price_usd),
+        electricity_cost_per_kwh=float(electricity_cost_per_kwh),
+        asic_power_watts=float(asic_power_watts),
+        pool_fee_pct=float(pool_fee_pct),
+        mc_runs=int(mc_runs),
+    )
+
+    store = SnapshotStore.from_repo_root()
+    snapshot = store.read_latest(params.coin)
+
+    token_payload = {
+        'v': 1,
+        'params': params.model_dump(),
+        'snapshot': snapshot.to_dict(),
+    }
+    token_payload['seed'] = _seed_for_payload(token_payload)
+
+    token = make_token_from_obj(token_payload)
+    
+    _append_metrics(
+        {
+            'ts': _now_utc_iso(),
+            'event': 'compare_share_created',
+            'token_fp': _token_fingerprint(token),
+            'coin': params.coin,
+            'hashrate': params.hashrate,
+            'horizon_days': params.horizon_days,
+            'meta': _request_meta(request),
+        }
+    )
+
+    return RedirectResponse(url=f'/c/{token}', status_code=303)
+
+
+@app.post('/api/compare/share')
+async def api_compare_share(request: Request) -> JSONResponse:
+    """
+    JSON variant for programmatic callers.
+    """
+    try:
+        raw = await request.json()
+        params = CompareParams(**raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Invalid compare inputs') from exc
+
+    store = SnapshotStore.from_repo_root()
+    snapshot = store.read_latest(params.coin)
+
+    token_payload = {
+        'v': 1,
+        'params': params.model_dump(),
+        'snapshot': snapshot.to_dict(),
+    }
+    token_payload['seed'] = _seed_for_payload(token_payload)
+    token = make_token_from_obj(token_payload)
+    return JSONResponse({'token': token, 'url': f'/c/{token}'})
+
+
+@app.get('/c/{token}', response_class=HTMLResponse)
+def compare_from_token(token: str, request: Request) -> HTMLResponse:
+    raw = parse_token(token)
+    params, snap, seed = _parse_compare_token_payload(raw)
+    result = _compute_compare(params=params, snapshot=snap, seed=seed)
+
+    _append_metrics(
+        {
+            'ts': _now_utc_iso(),
+            'event': 'compare_view',
+            'token_fp': _token_fingerprint(token),
+            'coin': params.coin,
+            'horizon_days': params.horizon_days,
+            'meta': _request_meta(request),
+        }
+    )
+
+    return templates.TemplateResponse(
+        'compare.html',
+        {
+            'request': request,
+            'token': token,
+            'result': result,
+            # tells template it is token-rendered mode
+            'token_mode': True,
+        },
+    )
+
+
+@app.get('/api/compare/{token}')
+def api_compare_token(token: str) -> JSONResponse:
+    raw = parse_token(token)
+    params, snap, seed = _parse_compare_token_payload(raw)
+    payload = _compute_compare(params=params, snapshot=snap, seed=seed)
+    return JSONResponse(payload)
+
+
 @app.get('/r/{token}', response_class=HTMLResponse)
 def render_report(token: str, request: Request) -> HTMLResponse:
     raw = parse_token(token)
@@ -620,3 +879,53 @@ def api_report(token: str) -> JSONResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HTTPException:
         raise
+
+
+@app.post('/api/v1/compare')
+def api_compare(req: CompareRequest) -> JSONResponse:
+    try:
+        hr = parse_hashrate(req.hashrate)
+        store = SnapshotStore.from_repo_root()
+        snapshot = store.read_latest(req.coin)
+
+        lambda_per_day = compute_lambda_per_day(
+            your_hashrate_hs=hr.hs,
+            network_hashrate_hs=snapshot.network_hashrate_hs,
+            blocks_per_day=snapshot.blocks_per_day,
+        )
+        mu = float(lambda_per_day) * float(req.horizon_days)
+
+        res = compare_solo_vs_pool(
+            mu=mu,
+            block_reward=float(snapshot.block_reward),
+            coin_price_usd=float(req.coin_price_usd),
+            horizon_days=float(req.horizon_days),
+            asic_power_watts=float(req.asic_power_watts),
+            electricity_cost_per_kwh=float(req.electricity_cost_per_kwh),
+            pool_fee_pct=float(req.pool_fee_pct),
+        )
+
+        payload = {
+            'schema_version': 1,
+            'generated_at': _now_utc_iso(),
+            'input': {
+                'coin': req.coin,
+                'hashrate_hs': hr.hs,
+                'hashrate_display': hr.format(),
+                'horizon_days': req.horizon_days,
+                'coin_price_usd': req.coin_price_usd,
+                'electricity_cost_per_kwh': req.electricity_cost_per_kwh,
+                'asic_power_watts': req.asic_power_watts,
+                'pool_fee_pct': req.pool_fee_pct,
+            },
+            'network_snapshot': _network_snapshot_to_report(snapshot),
+            'mu': res.mu,
+            'revenue_per_block_usd': res.revenue_per_block_usd,
+            'electricity_cost_usd': res.electricity_cost_usd,
+            'solo': res.solo,
+            'pool': res.pool,
+            'comparison': res.comparison,
+        }
+        return JSONResponse(payload)
+    except (UnitParseError, AnalyticError, SnapshotStoreError, EconomicCompareError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
