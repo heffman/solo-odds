@@ -20,17 +20,17 @@
     </div>
 
      <!-- Shareable headline -->
-+    <div class="alert alert-primary mb-3" role="alert">
-+      <div class="fw-semibold">
-+        At your current hashrate, there is a 50% chance you find your first block by
-+        <span class="fw-bold">{{ "%.6g"|format(report.analytic.time_to_first_block_median_days) }} days</span>
-+        (mean
-+        <span class="fw-bold">{{ "%.6g"|format(report.analytic.time_to_first_block_mean_days) }} days</span>).
-+      </div>
-+      <div class="small text-body-secondary mt-1">
-+        This is a variance model (Poisson). It’s not a profitability calculator.
-+      </div>
-+    </div>
+    <div class="alert alert-primary mb-3" role="alert">
+      <div class="fw-semibold">
+        At your current hashrate, there is a 50% chance you find your first block by
+        <span class="fw-bold">{{ "%.6g"|format(report.analytic.time_to_first_block_median_days) }} days</span>
+        (mean
+        <span class="fw-bold">{{ "%.6g"|format(report.analytic.time_to_first_block_mean_days) }} days</span>).
+      </div>
+      <div class="small text-body-secondary mt-1">
+        This is a variance model (Poisson). It’s not a profitability calculator.
+      </div>
+    </div>
 
     <div class="card mb-3">
       <div class="card-body">
