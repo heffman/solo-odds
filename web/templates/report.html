@@ -145,7 +145,7 @@
     </div>
 
     <div class="text-body-secondary small mt-2">
-      Shaded region shows the analytic time-to-first-block window: p10 to p90. Line marks p50.
+      Overlay shows analytic T₁ markers (p10/p50/p90). When percentiles exceed horizon, chart switches to probability thresholds
     </div>
 
     <!-- Monte Carlo summary -->
@@ -278,66 +278,103 @@ const p90ClippedHigh = t90Finite && t90 > xMax;
 // Only draw median line if it's actually within the plotted window (not clipped)
 const t50c = (t50Finite && t50 >= xMin && t50 <= xMax) ? t50 : null;
 
-const t1BandPlugin = {
-  id: 't1BandPlugin',
+const t1VizPlugin = {
+  id: 't1VizPlugin',
   afterDatasetsDraw(chart) {
-    if (t10c === null || t90c === null) return;
-
     const { ctx, chartArea, scales } = chart;
     const xScale = scales.x;
-    if (!xScale || !chartArea) return;
+    const yScale = scales.y;
+    if (!xScale || !yScale || !chartArea) return;
 
-    const x10 = xScale.getPixelForValue(t10c);
-    const x90 = xScale.getPixelForValue(t90c);
+    const xMaxLocal = xMax; // from outer scope
+    const t10Finite = Number.isFinite(t10);
+    const t50Finite = Number.isFinite(t50);
+    const t90Finite = Number.isFinite(t90);
+
+    // If t10 is within horizon, show the vertical band in x.
+    const showVerticalBand = t10Finite && t10 <= xMaxLocal;
 
     ctx.save();
 
-    // Shaded window
+    // Shared styling
     ctx.fillStyle = 'rgba(13,110,253,0.12)';
-    ctx.strokeStyle = 'rgba(13,110,253,0.35)';
+    ctx.strokeStyle = 'rgba(13,110,253,0.55)';
+    ctx.lineWidth = 1;
 
-    const left = Math.min(x10, x90);
-    const width = Math.abs(x90 - x10);
+    if (showVerticalBand) {
+      // Clamp just in case
+      const t10c = clamp(t10);
+      const t90c = t90Finite ? clamp(t90) : xMaxLocal;
 
-    ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
-    ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+      const x10 = xScale.getPixelForValue(t10c);
+      const x90 = xScale.getPixelForValue(t90c);
 
-    // Median line only if not clipped
-    if (t50c !== null) {
-      const x50 = xScale.getPixelForValue(t50c);
-      ctx.strokeStyle = 'rgba(13,110,253,0.7)';
-      ctx.beginPath();
-      ctx.moveTo(x50, chartArea.top);
-      ctx.lineTo(x50, chartArea.bottom);
-      ctx.stroke();
-    }
+      const left = Math.min(x10, x90);
+      const width = Math.abs(x90 - x10);
 
-    // Clip annotations
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+      // Band
+      ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+      ctx.globalAlpha = 0.8;
+      ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+      ctx.globalAlpha = 1;
 
-    const notes = [];
-    if (p10ClippedLow) notes.push('p10 < horizon start');
-    if (p50ClippedHigh) notes.push('p50 > horizon');
-    if (p90ClippedHigh) notes.push('p90 > horizon');
+      // Median line only if it’s within horizon
+      if (t50Finite && t50 >= xMin && t50 <= xMaxLocal) {
+        const x50 = xScale.getPixelForValue(t50);
+        ctx.beginPath();
+        ctx.moveTo(x50, chartArea.top);
+        ctx.lineTo(x50, chartArea.bottom);
+        ctx.stroke();
+      } else {
+        // Annotate that median is beyond horizon
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+        ctx.fillText('p50/p90 beyond horizon', chartArea.left + 8, chartArea.top + 14);
+      }
 
-    if (notes.length) {
-      // Top-right inside plot
-      const text = notes.join(' · ');
-      const pad = 8;
-      ctx.fillText(text, chartArea.left + pad, chartArea.top + 14);
-    }
+    } else {
+      // If t10 is beyond the horizon, vertical band is meaningless.
+      // Draw horizontal probability thresholds at 10%, 50%, 90%.
+      const probs = [
+        { p: 0.10, label: '10%' },
+        { p: 0.50, label: '50%' },
+        { p: 0.90, label: '90%' },
+      ];
 
-    // If p90 is clipped, draw a dashed hint at right edge to show truncation
-    if (p90ClippedHigh) {
-      const xr = xScale.getPixelForValue(xMax);
-      ctx.strokeStyle = 'rgba(13,110,253,0.55)';
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath();
-      ctx.moveTo(xr, chartArea.top);
-      ctx.lineTo(xr, chartArea.bottom);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      // light tint behind 10–90
+      const y10 = yScale.getPixelForValue(0.10);
+      const y90 = yScale.getPixelForValue(0.90);
+      ctx.fillRect(
+        chartArea.left,
+        Math.min(y10, y90),
+        chartArea.right - chartArea.left,
+        Math.abs(y90 - y10)
+      );
+
+      // lines + labels
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+
+      probs.forEach(({ p, label }) => {
+        const y = yScale.getPixelForValue(p);
+
+        // 50% line slightly stronger
+        ctx.strokeStyle = (p === 0.50) ? 'rgba(13,110,253,0.85)' : 'rgba(13,110,253,0.55)';
+        ctx.setLineDash(p === 0.50 ? [] : [4, 4]);
+
+        ctx.beginPath();
+        ctx.moveTo(chartArea.left, y);
+        ctx.lineTo(chartArea.right, y);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+
+        // label on left
+        ctx.fillText(`T₁ ${label}`, chartArea.left + 8, y - 6);
+      });
+
+      // note
+      ctx.fillText('T₁ p10/p50/p90 exceed horizon', chartArea.left + 8, chartArea.top + 14);
     }
 
     ctx.restore();
@@ -372,7 +409,7 @@ const t1BandPlugin = {
         },
         plugins: { legend: { display: true } }
       },
-      plugins: [t1BandPlugin]
+      plugins: [t1VizPlugin]
     });
   })();
 </script>
