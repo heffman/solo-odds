@@ -254,54 +254,95 @@
     {% endif %}
 
     let t10 = Number({{ report.analytic.time_to_first_block_days.p10|tojson }});
-    let t50 = Number({{ report.analytic.time_to_first_block_days.p50|tojson }});
-    let t90 = Number({{ report.analytic.time_to_first_block_days.p90|tojson }});
+let t50 = Number({{ report.analytic.time_to_first_block_days.p50|tojson }});
+let t90 = Number({{ report.analytic.time_to_first_block_days.p90|tojson }});
 
-    // Clamp band to plotted x-range so it doesn't "cover everything" when out of range.
-    const xMin = Math.min(...baselineSeries.map(p => p.x));
-    const xMax = Math.max(...baselineSeries.map(p => p.x));
+// Plot x-range
+const xMin = Math.min(...baselineSeries.map(p => p.x));
+const xMax = Math.max(...baselineSeries.map(p => p.x));
 
-    const clamp = (v) => Math.min(xMax, Math.max(xMin, v));
-    const t10c = Number.isFinite(t10) ? clamp(t10) : null;
-    const t90c = Number.isFinite(t90) ? clamp(t90) : null;
-    const t50c = Number.isFinite(t50) ? clamp(t50) : null;
+const clamp = (v) => Math.min(xMax, Math.max(xMin, v));
 
-    const t1BandPlugin = {
-      id: 't1BandPlugin',
-      afterDatasetsDraw(chart) {
-        if (t10c === null || t90c === null) return;
+const t10Finite = Number.isFinite(t10);
+const t50Finite = Number.isFinite(t50);
+const t90Finite = Number.isFinite(t90);
 
-        const { ctx, chartArea, scales } = chart;
-        const xScale = scales.x;
-        if (!xScale || !chartArea) return;
+const t10c = t10Finite ? clamp(t10) : null;
+const t90c = t90Finite ? clamp(t90) : null;
 
-        const x10 = xScale.getPixelForValue(t10c);
-        const x90 = xScale.getPixelForValue(t90c);
+// Detect clipping so we can annotate and avoid misleading lines.
+const p10ClippedLow  = t10Finite && t10 < xMin;
+const p50ClippedHigh = t50Finite && t50 > xMax;
+const p90ClippedHigh = t90Finite && t90 > xMax;
 
-        ctx.save();
+// Only draw median line if it's actually within the plotted window (not clipped)
+const t50c = (t50Finite && t50 >= xMin && t50 <= xMax) ? t50 : null;
 
-        // Make it visible and consistent (Bootstrap "primary" hue).
-        ctx.fillStyle = 'rgba(13,110,253,0.12)';
-        ctx.strokeStyle = 'rgba(13,110,253,0.35)';
+const t1BandPlugin = {
+  id: 't1BandPlugin',
+  afterDatasetsDraw(chart) {
+    if (t10c === null || t90c === null) return;
 
-        const left = Math.min(x10, x90);
-        const width = Math.abs(x90 - x10);
+    const { ctx, chartArea, scales } = chart;
+    const xScale = scales.x;
+    if (!xScale || !chartArea) return;
 
-        ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
-        ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+    const x10 = xScale.getPixelForValue(t10c);
+    const x90 = xScale.getPixelForValue(t90c);
 
-        if (t50c !== null) {
-          const x50 = xScale.getPixelForValue(t50c);
-          ctx.strokeStyle = 'rgba(13,110,253,0.7)';
-          ctx.beginPath();
-          ctx.moveTo(x50, chartArea.top);
-          ctx.lineTo(x50, chartArea.bottom);
-          ctx.stroke();
-        }
+    ctx.save();
 
-        ctx.restore();
-      }
-    };
+    // Shaded window
+    ctx.fillStyle = 'rgba(13,110,253,0.12)';
+    ctx.strokeStyle = 'rgba(13,110,253,0.35)';
+
+    const left = Math.min(x10, x90);
+    const width = Math.abs(x90 - x10);
+
+    ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+    ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+
+    // Median line only if not clipped
+    if (t50c !== null) {
+      const x50 = xScale.getPixelForValue(t50c);
+      ctx.strokeStyle = 'rgba(13,110,253,0.7)';
+      ctx.beginPath();
+      ctx.moveTo(x50, chartArea.top);
+      ctx.lineTo(x50, chartArea.bottom);
+      ctx.stroke();
+    }
+
+    // Clip annotations
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+
+    const notes = [];
+    if (p10ClippedLow) notes.push('p10 < horizon start');
+    if (p50ClippedHigh) notes.push('p50 > horizon');
+    if (p90ClippedHigh) notes.push('p90 > horizon');
+
+    if (notes.length) {
+      // Top-right inside plot
+      const text = notes.join(' · ');
+      const pad = 8;
+      ctx.fillText(text, chartArea.left + pad, chartArea.top + 14);
+    }
+
+    // If p90 is clipped, draw a dashed hint at right edge to show truncation
+    if (p90ClippedHigh) {
+      const xr = xScale.getPixelForValue(xMax);
+      ctx.strokeStyle = 'rgba(13,110,253,0.55)';
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(xr, chartArea.top);
+      ctx.lineTo(xr, chartArea.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.restore();
+  }
+};
 
     if (window.__soloOddsCurveChart) {
       window.__soloOddsCurveChart.destroy();
