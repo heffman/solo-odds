@@ -90,7 +90,7 @@ class CompareParams(BaseModel):
     electricity_cost_per_kwh: float = Field(ge=0)
     asic_power_watts: float = Field(ge=0)
     pool_fee_pct: float = Field(ge=0, le=0.25)
-    mc_runs: int = Field(ge=0, le=200000)
+    mc_runs: int = Field(0, ge=0, le=200000)
 
 
 class CompareTokenPayloadV1(BaseModel):
