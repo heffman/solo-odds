@@ -220,151 +220,149 @@
 
   </div>
 
-  <script>
-    (function () {
-      const canvas = document.getElementById('curve');
-      if (!canvas) return;
+ <script>
+  (function () {
+    const canvas = document.getElementById('curve');
+    if (!canvas) return;
 
-      const points = {{ curve|tojson }};
-      if (!points || points.length === 0) return;
+    const points = {{ curve|tojson }};
+    if (!points || points.length === 0) return;
 
-      const labels = points.map(p => p.day);
-      const pAtLeastOne = points.map(p => p.probability_at_least_one);
+    const labels = points.map(p => Number(p.day));
+    const pAtLeastOne = points.map(p => Number(p.probability_at_least_one));
 
-      const datasets = [{
-        label: 'P(≥1 block) (analytic)',
-        data: pAtLeastOne,
+    const datasets = [{
+      label: 'P(≥1 block) (analytic)',
+      data: pAtLeastOne,
+      tension: 0.2,
+      pointRadius: 0
+    }];
+
+    {% if reinvest and reinvest.enabled %}
+    const reinvestPoints = {{ reinvest.points|tojson }};
+    if (reinvestPoints && reinvestPoints.length > 0) {
+      datasets.push({
+        label: 'Reinvest after first block (MC) — P(≥1)',
+        data: reinvestPoints.map(p => Number(p.probability_at_least_one)),
         tension: 0.2,
         pointRadius: 0
-      }];
-
-      {% if reinvest and reinvest.enabled %}
-      const reinvestPoints = {{ reinvest.points|tojson }};
-      if (reinvestPoints && reinvestPoints.length > 0) {
-        datasets.push({
-          label: 'Reinvest after first block (MC) — P(≥1)',
-          data: reinvestPoints.map(p => p.probability_at_least_one),
-          tension: 0.2,
-          pointRadius: 0
-        });
-      }
-      {% endif %}
-
-       // Time-to-first band markers (days). These come from your analytic block.
-      const t10 = Number({{ report.analytic.time_to_first_block_days.p10|tojson }});
-      const t50 = Number({{ report.analytic.time_to_first_block_days.p50|tojson }});
-      const t90 = Number({{ report.analytic.time_to_first_block_days.p90|tojson }});
-
-      // Custom plugin to draw a vertical shaded band [t10, t90] and a line at t50.
-      // No external dependencies.
-      const t1BandPlugin = {
-        id: 't1BandPlugin',
-        afterDatasetsDraw(chart) {
-          if (!Number.isFinite(t10) || !Number.isFinite(t90)) return;
-          const { ctx, chartArea, scales } = chart;
-          const xScale = scales.x;
-          if (!xScale || !chartArea) return;
-
-          // Convert "days" values to pixel positions.
-          // x scale is category by labels. We'll map day->index by nearest label.
-          const dayToIndex = (day) => {
-            // labels are numbers; find nearest index
-            let bestIdx = 0;
-            let bestDist = Infinity;
-            for (let i = 0; i < labels.length; i++) {
-              const d = Math.abs(Number(labels[i]) - day);
-              if (d < bestDist) { bestDist = d; bestIdx = i; }
-            }
-            return bestIdx;
-          };
-
-          const i10 = dayToIndex(t10);
-          const i90 = dayToIndex(t90);
-          const i50 = Number.isFinite(t50) ? dayToIndex(t50) : null;
-
-          const x10 = xScale.getPixelForValue(i10);
-          const x90 = xScale.getPixelForValue(i90);
-
-          ctx.save();
-
-          // Shaded region
-          ctx.globalAlpha = 0.12;
-          ctx.fillRect(
-            Math.min(x10, x90),
-            chartArea.top,
-            Math.abs(x90 - x10),
-            chartArea.bottom - chartArea.top
-          );
-
-          // Outline (optional subtle)
-          ctx.globalAlpha = 0.25;
-          ctx.strokeRect(
-            Math.min(x10, x90),
-            chartArea.top,
-            Math.abs(x90 - x10),
-            chartArea.bottom - chartArea.top
-          );
-
-          // Median line
-          if (i50 !== null) {
-            const x50 = xScale.getPixelForValue(i50);
-            ctx.globalAlpha = 0.5;
-            ctx.beginPath();
-            ctx.moveTo(x50, chartArea.top);
-            ctx.lineTo(x50, chartArea.bottom);
-            ctx.stroke();
-          }
-
-          ctx.restore();
-        }
-      };
-
-      if (window.__soloOddsCurveChart) {
-        window.__soloOddsCurveChart.destroy();
-        window.__soloOddsCurveChart = null;
-      }
-
-      window.__soloOddsCurveChart = new Chart(canvas, {
-        type: 'line',
-        data: { labels, datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          scales: {
-            y: {
-              title: { display: true, text: 'P(≥1 block)' },
-              min: 0,
-              max: 1
-            },
-            x: {
-              title: { display: true, text: 'Days' }
-            }
-          },
-          plugins: {
-            legend: { display: true }
-          }
-        },
-        plugins: [t1BandPlugin]
       });
+    }
+    {% endif %}
 
-      const btn = document.getElementById('copy-link');
-      const status = document.getElementById('copy-status');
-      if (btn) {
-        btn.addEventListener('click', async () => {
-          const url = `${window.location.origin}/r/{{ token }}`;
-          try {
-            await navigator.clipboard.writeText(url);
-            if (status) {
-              status.textContent = 'Copied.';
-              setTimeout(() => { status.textContent = ''; }, 1500);
-            }
-          } catch (e) {
-            window.prompt('Copy this link:', url);
-          }
-        });
+    // Prefer analytic p10/p50/p90 if finite; otherwise compute from effective mean rate.
+    let t10 = Number({{ report.analytic.time_to_first_block_days.p10|tojson }});
+    let t50 = Number({{ report.analytic.time_to_first_block_days.p50|tojson }});
+    let t90 = Number({{ report.analytic.time_to_first_block_days.p90|tojson }});
+
+    const meanDays = Number({{ report.analytic.time_to_first_block_mean_days|tojson }});
+
+    if (!Number.isFinite(t10) || !Number.isFinite(t50) || !Number.isFinite(t90)) {
+      if (Number.isFinite(meanDays) && meanDays > 0) {
+        const lambda = 1.0 / meanDays;
+        t10 = -Math.log(0.9) / lambda;
+        t50 = Math.log(2.0) / lambda;
+        t90 = -Math.log(0.1) / lambda;
       }
-    })();
-  </script>
+    }
+
+    const t1BandPlugin = {
+      id: 't1BandPlugin',
+      afterDatasetsDraw(chart) {
+        if (!Number.isFinite(t10) || !Number.isFinite(t90)) return;
+
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        if (!xScale || !chartArea) return;
+
+        const dayToIndex = (day) => {
+          let bestIdx = 0;
+          let bestDist = Infinity;
+          for (let i = 0; i < labels.length; i++) {
+            const d = Math.abs(labels[i] - day);
+            if (d < bestDist) { bestDist = d; bestIdx = i; }
+          }
+          return bestIdx;
+        };
+
+        const i10 = dayToIndex(t10);
+        const i90 = dayToIndex(t90);
+        const i50 = Number.isFinite(t50) ? dayToIndex(t50) : null;
+
+        // For category scale, using the index is OK. This is explicit and stable:
+        const x10 = xScale.getPixelForValue(i10);
+        const x90 = xScale.getPixelForValue(i90);
+
+        ctx.save();
+
+        // Make the band obvious: set explicit fill/stroke colors.
+        ctx.fillStyle = 'rgba(13,110,253,0.12)';   // bootstrap primary-ish, light alpha
+        ctx.strokeStyle = 'rgba(13,110,253,0.35)';
+
+        ctx.fillRect(
+          Math.min(x10, x90),
+          chartArea.top,
+          Math.abs(x90 - x10),
+          chartArea.bottom - chartArea.top
+        );
+        ctx.strokeRect(
+          Math.min(x10, x90),
+          chartArea.top,
+          Math.abs(x90 - x10),
+          chartArea.bottom - chartArea.top
+        );
+
+        if (i50 !== null) {
+          const x50 = xScale.getPixelForValue(i50);
+          ctx.strokeStyle = 'rgba(13,110,253,0.7)';
+          ctx.beginPath();
+          ctx.moveTo(x50, chartArea.top);
+          ctx.lineTo(x50, chartArea.bottom);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+    };
+
+    if (window.__soloOddsCurveChart) {
+      window.__soloOddsCurveChart.destroy();
+      window.__soloOddsCurveChart = null;
+    }
+
+    window.__soloOddsCurveChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          y: { title: { display: true, text: 'P(≥1 block)' }, min: 0, max: 1 },
+          x: { title: { display: true, text: 'Days' } }
+        },
+        plugins: { legend: { display: true } }
+      },
+      plugins: [t1BandPlugin]
+    });
+
+    const btn = document.getElementById('copy-link');
+    const status = document.getElementById('copy-status');
+    if (btn) {
+      btn.addEventListener('click', async () => {
+        const url = `${window.location.origin}/r/{{ token }}`;
+        try {
+          await navigator.clipboard.writeText(url);
+          if (status) {
+            status.textContent = 'Copied.';
+            setTimeout(() => { status.textContent = ''; }, 1500);
+          }
+        } catch (e) {
+          window.prompt('Copy this link:', url);
+        }
+      });
+    }
+  })();
+</script>
 </body>
 </html>
