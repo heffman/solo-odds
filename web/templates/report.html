@@ -134,7 +134,7 @@
     <!-- Curve -->
     <div class="card mb-3">
       <div class="card-body">
-        <h2 class="h5 mb-3">Curve: expected blocks (μ) with variance band (p10–p90 blocks)</h2>
+        <h2 class="h5 mb-3">Curve: P(≥1 block) vs days (with T₁ p10–p90 band)</h2>
         <div class="chart-wrap">
           <canvas id="curve"></canvas>
         </div>
@@ -142,6 +142,10 @@
           Baseline is analytic. Reinvestment overlay (if enabled) is Monte Carlo.
         </div>
       </div>
+    </div>
+
+    <div class="text-body-secondary small mt-2">
+      Shaded region shows the analytic time-to-first-block window: p10 to p90. Line marks p50.
     </div>
 
     <!-- Monte Carlo summary -->
@@ -225,43 +229,95 @@
       if (!points || points.length === 0) return;
 
       const labels = points.map(p => p.day);
-      const baselineMu = points.map(p => p.expected_blocks);
-      const p10Blocks = points.map(p => p.blocks_p10);
-      const p90Blocks = points.map(p => p.blocks_p90);
+      const pAtLeastOne = points.map(p => p.probability_at_least_one);
 
-      const datasets = [
-        // Upper band first, then lower band with fill to previous dataset.
-        {
-          label: 'Blocks p90',
-          data: p90Blocks,
-          tension: 0.2,
-          pointRadius: 0
-        },
-        {
-          label: 'Blocks p10 (band)',
-          data: p10Blocks,
-          tension: 0.2,
-          fill: '-1',
-          pointRadius: 0
-        },
-        {
-          label: 'Expected blocks (μ)',
-          data: baselineMu,
-          tension: 0.2,
-          pointRadius: 0
-        }
-      ];
+      const datasets = [{
+        label: 'P(≥1 block) (analytic)',
+        data: pAtLeastOne,
+        tension: 0.2,
+        pointRadius: 0
+      }];
 
       {% if reinvest and reinvest.enabled %}
       const reinvestPoints = {{ reinvest.points|tojson }};
       if (reinvestPoints && reinvestPoints.length > 0) {
         datasets.push({
-          label: 'Reinvest after first block (MC) — expected blocks',
-          data: reinvestPoints.map(p => p.expected_blocks),
-          tension: 0.2
+          label: 'Reinvest after first block (MC) — P(≥1)',
+          data: reinvestPoints.map(p => p.probability_at_least_one),
+          tension: 0.2,
+          pointRadius: 0
         });
       }
       {% endif %}
+
+       // Time-to-first band markers (days). These come from your analytic block.
+      const t10 = Number({{ report.analytic.time_to_first_block_days.p10|tojson }});
+      const t50 = Number({{ report.analytic.time_to_first_block_days.p50|tojson }});
+      const t90 = Number({{ report.analytic.time_to_first_block_days.p90|tojson }});
+
+      // Custom plugin to draw a vertical shaded band [t10, t90] and a line at t50.
+      // No external dependencies.
+      const t1BandPlugin = {
+        id: 't1BandPlugin',
+        afterDatasetsDraw(chart) {
+          if (!Number.isFinite(t10) || !Number.isFinite(t90)) return;
+          const { ctx, chartArea, scales } = chart;
+          const xScale = scales.x;
+          if (!xScale || !chartArea) return;
+
+          // Convert "days" values to pixel positions.
+          // x scale is category by labels. We'll map day->index by nearest label.
+          const dayToIndex = (day) => {
+            // labels are numbers; find nearest index
+            let bestIdx = 0;
+            let bestDist = Infinity;
+            for (let i = 0; i < labels.length; i++) {
+              const d = Math.abs(Number(labels[i]) - day);
+              if (d < bestDist) { bestDist = d; bestIdx = i; }
+            }
+            return bestIdx;
+          };
+
+          const i10 = dayToIndex(t10);
+          const i90 = dayToIndex(t90);
+          const i50 = Number.isFinite(t50) ? dayToIndex(t50) : null;
+
+          const x10 = xScale.getPixelForValue(i10);
+          const x90 = xScale.getPixelForValue(i90);
+
+          ctx.save();
+
+          // Shaded region
+          ctx.globalAlpha = 0.12;
+          ctx.fillRect(
+            Math.min(x10, x90),
+            chartArea.top,
+            Math.abs(x90 - x10),
+            chartArea.bottom - chartArea.top
+          );
+
+          // Outline (optional subtle)
+          ctx.globalAlpha = 0.25;
+          ctx.strokeRect(
+            Math.min(x10, x90),
+            chartArea.top,
+            Math.abs(x90 - x10),
+            chartArea.bottom - chartArea.top
+          );
+
+          // Median line
+          if (i50 !== null) {
+            const x50 = xScale.getPixelForValue(i50);
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(x50, chartArea.top);
+            ctx.lineTo(x50, chartArea.bottom);
+            ctx.stroke();
+          }
+
+          ctx.restore();
+        }
+      };
 
       if (window.__soloOddsCurveChart) {
         window.__soloOddsCurveChart.destroy();
@@ -277,19 +333,19 @@
           animation: false,
           scales: {
             y: {
-              title: { display: true, text: 'Blocks' }
+              title: { display: true, text: 'P(≥1 block)' },
+              min: 0,
+              max: 1
             },
             x: {
               title: { display: true, text: 'Days' }
             }
           },
           plugins: {
-            legend: {
-              // Keep it readable: hide p10/p90 lines in legend if you want
-              // (leave visible for now; you can toggle later)
-            }
+            legend: { display: true }
           }
-        }
+        },
+        plugins: [t1BandPlugin]
       });
 
       const btn = document.getElementById('copy-link');
