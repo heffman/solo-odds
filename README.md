@@ -20,8 +20,6 @@ It answers questions like:
 - Deterministic shareable links in the web app (tokenized reports)
 - Monte Carlo simulation (optional; CLI and web)
 
----
-
 ## Why This Exists
 
 This tool is not an ROI marketing calculator.
@@ -35,8 +33,6 @@ Solo mining is dominated by variance. What matters is:
 - Sensitivity to network growth assumptions
 
 Solo Odds models those explicitly.
-
----
 
 ## Installation
 
@@ -53,8 +49,6 @@ git clone https://github.com/<yourname>/solo-odds.git
 cd solo-odds
 pip install .
 ```
-
---- 
 
 ## CLI
 ### Refresh snapshot data
@@ -166,8 +160,6 @@ solo-odds plot \
   --out mu_log.png
 ```
 
----
-
 ## Web API
 - /api/report/{token} — solo variance report (tokenized, snapshot-frozen)
 - /api/v1/compare — solo vs pool risk comparison (includes basic electricity + pool fee modeling)
@@ -199,8 +191,6 @@ Not optimized for:
 
 This tool emphasizes probability distributions and risk boundaries over simple expected value.
 
----
-
 ## Example Output (Analytic)
 
 `solo-odds odds --json` emits a report with fields like:
@@ -221,8 +211,6 @@ This tool emphasizes probability distributions and risk boundaries over simple e
 }
 ```
 
----
-
 ## Data Sources
 
 Snapshots are fetched from public network APIs and cached locally:
@@ -237,8 +225,6 @@ Snapshots are stored under:
 
 Each snapshot includes `source` and `source_url` fields.
 
----
-
 ## Assumptions
 - Blocks follow a Poisson process.
 - Inputs are taken from a snapshot and treated as fixed for a run.
@@ -248,8 +234,6 @@ Each snapshot includes `source` and `source_url` fields.
 - Pool outcomes are modeled as deterministic expected value (v1); pool variance is not modeled.
 
 This tool models block-finding probability and variance. It is not financial advice.
-
----
 
 ## Non-Goals
 - Mining pool operation
@@ -261,8 +245,6 @@ Notes:
 
 - The CLI focuses on probability/variance outputs.
 - The web compare endpoint includes basic electricity + pool fee modeling for risk framing.
-
----
 
 ## License
 
