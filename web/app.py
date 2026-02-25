@@ -129,6 +129,27 @@ class CompareRequest(BaseModel):
     mc_runs: int = Field(ge=0, le=200000)
 
 
+class CompareHeatmapRequest(BaseModel):
+    """
+    Heatmap request for compare form.
+    We intentionally keep it deterministic (no MC).
+    """
+    model_config = ConfigDict(extra='forbid')
+    coin: str = Field(pattern='^(btc|bch)$')
+    hashrate: str = Field(min_length=1)
+    horizon_days: int = Field(ge=1, le=3650)
+    coin_price_usd: float = Field(gt=0)
+    electricity_cost_per_kwh: float = Field(ge=0)
+    asic_power_watts: float = Field(ge=0)
+    pool_fee_pct: float = Field(ge=0, le=0.25)
+
+    # grid config (keep small to avoid abuse)
+    price_span_pct: float = Field(0.5, ge=0.05, le=0.9)     # +/- 50% default
+    elec_span_pct: float = Field(0.5, ge=0.05, le=0.9)      # +/- 50% default
+    price_steps: int = Field(15, ge=5, le=31)
+    elec_steps: int = Field(15, ge=5, le=31)
+
+
 def _append_metrics(event: Dict[str, Any]) -> None:
     """
     Append one JSONL event to disk.
@@ -1054,6 +1075,96 @@ def api_compare(req: CompareRequest) -> JSONResponse:
             seed=seed,
         )
 
+        return JSONResponse(payload)
+    except (UnitParseError, AnalyticError, EconomicCompareError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+def _linspace(min_v: float, max_v: float, steps: int) -> List[float]:
+    if steps <= 1:
+        return [float(min_v)]
+    if max_v < min_v:
+        min_v, max_v = max_v, min_v
+    span = float(max_v - min_v)
+    return [float(min_v + (span * i) / float(steps - 1)) for i in range(steps)]
+    
+
+@app.post('/api/v1/compare/heatmap')
+def api_compare_heatmap(req: CompareHeatmapRequest) -> JSONResponse:
+    """
+    Deterministic heatmap over:
+    X: coin price (USD)
+    Y: electricity cost ($/kWh)
+
+    Cell value: probability_negative_net (solo).
+    """
+    try:
+        coin = _normalize_coin(req.coin)
+        hashrate = _normalize_hashrate_str(req.hashrate)
+        hr = parse_hashrate(hashrate)
+
+        store = SnapshotStore.from_repo_root()
+        snapshot = store.read_latest(coin)
+
+        lambda_per_day = compute_lambda_per_day(
+            your_hashrate_hs=hr.hs,
+            network_hashrate_hs=snapshot.network_hashrate_hs,
+            blocks_per_day=snapshot.blocks_per_day,
+        )
+        mu = float(lambda_per_day) * float(req.horizon_days)
+
+        # Grids (clamp to sensible mins)
+        base_price = float(req.coin_price_usd)
+        base_elec = float(req.electricity_cost_per_kwh)
+
+        price_min = max(0.01, base_price * (1.0 - float(req.price_span_pct)))
+        price_max = max(price_min, base_price * (1.0 + float(req.price_span_pct)))
+
+        elec_min = max(0.0, base_elec * (1.0 - float(req.elec_span_pct)))
+        elec_max = max(elec_min, base_elec * (1.0 + float(req.elec_span_pct)))
+
+        price_grid = _linspace(price_min, price_max, int(req.price_steps))
+        elec_grid = _linspace(elec_min, elec_max, int(req.elec_steps))
+
+        matrix: List[List[float]] = []
+        for elec in elec_grid:
+            row: List[float] = []
+            for price in price_grid:
+                res = compare_solo_vs_pool(
+                    mu=mu,
+                    block_reward=float(snapshot.block_reward),
+                    coin_price_usd=float(price),
+                    horizon_days=float(req.horizon_days),
+                    asic_power_watts=float(req.asic_power_watts),
+                    electricity_cost_per_kwh=float(elec),
+                    pool_fee_pct=float(req.pool_fee_pct),
+                )
+                row.append(float(res.solo['probability_negative_net']))
+            matrix.append(row)
+
+        payload = {
+            'schema_version': 1,
+            'generated_at': _now_utc_iso(),
+            'input': {
+                'coin': coin,
+                'hashrate_hs': hr.hs,
+                'hashrate_display': hr.format(),
+                'horizon_days': int(req.horizon_days),
+                'asic_power_watts': float(req.asic_power_watts),
+                'pool_fee_pct': float(req.pool_fee_pct),
+                'coin_price_usd': base_price,
+                'electricity_cost_per_kwh': base_elec,
+                'price_span_pct': float(req.price_span_pct),
+                'elec_span_pct': float(req.elec_span_pct),
+                'price_steps': int(req.price_steps),
+                'elec_steps': int(req.elec_steps),
+            },
+            'network_snapshot': _network_snapshot_to_report(snapshot),
+            'mu': float(mu),
+            'price_grid': price_grid,
+            'electricity_grid': elec_grid,
+            # matrix indexed [elec_row][price_col]
+            'probability_negative_net': matrix,
+        }
         return JSONResponse(payload)
     except (UnitParseError, AnalyticError, EconomicCompareError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

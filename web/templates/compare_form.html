@@ -11,6 +11,34 @@
     .metric-kv { display:flex; justify-content:space-between; gap:1rem; }
     .metric-kv .k { color: #6c757d; }
     .metric-kv .v { font-weight: 600; }
+
+    /* Minimal heatmap styling (no extra deps) */
+    .heatmap-grid {
+      display: grid;
+      gap: 2px;
+      width: 100%;
+    }
+    .heatmap-cell {
+      aspect-ratio: 1 / 1;
+      border-radius: 3px;
+      cursor: default;
+    }
+    .heatmap-legend {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      display: inline-block;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
+    .heatmap-axis {
+      font-size: 0.85rem;
+    }
   </style>
 </head>
 <body class="bg-body">
@@ -165,6 +193,40 @@
         </div>
       </div>
 
+       <div class="row g-3 mt-2">
+         <div class="col-12">
+           <div class="card p-3">
+             <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+               <div>
+                 <h2 class="h6 mb-1">Risk Heatmap: P(net &lt; 0)</h2>
+                 <div class="text-body-secondary small">
+                   X = coin price, Y = electricity cost. Each cell is the probability your solo net is negative.
+                 </div>
+               </div>
+               <div class="heatmap-legend small text-body-secondary">
+                 <span class="legend-swatch" style="background:#d1e7dd;"></span><span>&lt;20%</span>
+                 <span class="legend-swatch" style="background:#fff3cd;"></span><span>20–50%</span>
+                 <span class="legend-swatch" style="background:#ffe5d0;"></span><span>50–80%</span>
+                 <span class="legend-swatch" style="background:#f8d7da;"></span><span>&gt;80%</span>
+               </div>
+             </div>
+             <div class="row g-2 mt-2 align-items-center">
+               <div class="col-12 col-md-10">
+                 <div id="heatmap" class="heatmap-grid" aria-label="Risk heatmap"></div>
+               </div>
+               <div class="col-12 col-md-2">
+                 <div class="heatmap-axis text-body-secondary small">
+                   <div class="fw-semibold">Axes</div>
+                   <div>Right: higher price</div>
+                   <div>Up: higher $/kWh</div>
+                 </div>
+                 <div class="small text-body-secondary mt-2" id="heatmap-status"></div>
+               </div>
+             </div>
+           </div>
+         </div>
+       </div>
+
       <div class="row g-3 mt-2">
         <div class="col-12">
           <div class="small text-body-secondary">
@@ -194,6 +256,8 @@
   const shareBtn = document.getElementById('share-btn');
   const shareStatus = document.getElementById('share-status');
   const logYToggle = document.getElementById('log-y');
+  const heatmapEl = document.getElementById('heatmap');
+  const heatmapStatus = document.getElementById('heatmap-status');
 
   const headlineEl = document.getElementById('headline');
   const headlineSubEl = document.getElementById('headline-sub');
@@ -253,6 +317,61 @@
     payload.mc_runs = Number(payload.mc_runs);
 
     return payload;
+  }
+
+
+  function colorForProb(p) {
+    // Buckets (match legend)
+    if (p < 0.20) return '#d1e7dd'; // green-ish
+    if (p < 0.50) return '#fff3cd'; // yellow-ish
+    if (p < 0.80) return '#ffe5d0'; // orange-ish
+    return '#f8d7da';              // red-ish
+  }
+
+  function renderHeatmap(grid) {
+    if (!heatmapEl || !grid) return;
+
+    const prices = grid.price_usd || [];
+    const elec = grid.electricity_cost_per_kwh || [];
+    const z = grid.z_probability_negative_net || [];
+    const cur = grid.current_index || {x: 0, y: 0};
+
+    if (!prices.length || !elec.length || !z.length) {
+      heatmapEl.innerHTML = '';
+      if (heatmapCaptionEl) heatmapCaptionEl.textContent = '';
+      return;
+    }
+
+    // grid columns = prices
+    heatmapEl.style.gridTemplateColumns = `repeat(${prices.length}, 18px)`;
+
+    // Build cells row-major: electricity rows top->bottom (we’ll render high->low so “higher elec” is visually higher)
+    const rows = [];
+    for (let y = elec.length - 1; y >= 0; y--) {
+      for (let x = 0; x < prices.length; x++) {
+        const p = Number(z[y][x] ?? 0);
+        const div = document.createElement('div');
+        div.className = 'heatmap-cell';
+        div.style.background = colorForProb(p);
+
+        // Mark current input cell (nearest index)
+        if (x === Number(cur.x) && y === Number(cur.y)) {
+          div.classList.add('current');
+        }
+
+        // Tooltip
+        const price = Number(prices[x]).toFixed(2);
+        const e = Number(elec[y]).toFixed(3);
+        div.title = `price=$${price}, elec=$${e}/kWh, P(loss)=${(p*100).toFixed(1)}%`;
+        rows.push(div);
+      }
+    }
+
+    heatmapEl.replaceChildren(...rows);
+
+    if (heatmapCaptionEl) {
+      heatmapCaptionEl.textContent = `Grid: ${prices.length}×${elec.length} (price ~$${prices[0].toFixed(2)}..$${prices[prices.length-1].toFixed(2)}, elec ~$${elec[0].toFixed(3)}..$${elec[elec.length-1].toFixed(3)}/kWh)`;
+    }
   }
 
   function binIndexForX(histData, x) {
@@ -489,6 +608,32 @@
 
     const data = await res.json();
     render(data);
+
+    // Heatmap (A): P(solo net < 0) over price x electricity
+    // Fire-and-forget UX: if it fails, don’t block primary results.
+    try {
+      const hmRes = await fetch('/api/v1/compare/heatmap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          coin: payload.coin,
+          hashrate: payload.hashrate,
+          horizon_days: payload.horizon_days,
+          coin_price_usd: payload.coin_price_usd,
+          electricity_cost_per_kwh: payload.electricity_cost_per_kwh,
+          asic_power_watts: payload.asic_power_watts,
+          pool_fee_pct: payload.pool_fee_pct
+        })
+      });
+      if (hmRes.ok) {
+        const hm = await hmRes.json();
+        if (hm && hm.grid) {
+          renderHeatmap(hm.grid);
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
 
     shareBtn.disabled = false;
     shareStatus.textContent = '';
