@@ -122,10 +122,22 @@
   const shareBtn = document.getElementById('share-btn');
   const shareStatus = document.getElementById('share-status');
 
+ function normalizeHashrate(s) {
+    // Keep it simple: trim, remove internal spaces, uppercase units.
+    // Examples: "9.4 th" -> "9.4TH", " 500 gh/s " -> "500GH/S"
+    if (s == null) return '';
+    return String(s).trim().replace(/\s+/g, '').toUpperCase();
+  }
+
   function toPayload() {
     const formData = new FormData(form);
     const payload = Object.fromEntries(formData.entries());
 
+    // Normalize string fields
+    payload.coin = String(payload.coin || '').trim().toLowerCase();
+    payload.hashrate = normalizeHashrate(payload.hashrate);
+
+    // Normalize numeric fields
     payload.horizon_days = Number(payload.horizon_days);
     payload.coin_price_usd = Number(payload.coin_price_usd);
     payload.electricity_cost_per_kwh = Number(payload.electricity_cost_per_kwh);

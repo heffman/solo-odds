@@ -185,6 +185,15 @@ def make_token_from_obj(obj: Dict[str, Any]) -> str:
     return make_token(obj)
 
 
+def _normalize_coin(coin: str) -> str:
+    return (coin or '').strip().lower()
+
+
+def _normalize_hashrate_str(hashrate: str) -> str:
+    # parse_hashrate likely handles case/spacing already, but normalize anyway
+    return (hashrate or '').strip().replace(' ', '').upper()
+
+
 def parse_token(token: str) -> Dict[str, Any]:
     try:
         payload_b64, sig_b64 = token.split('.', 1)
@@ -725,7 +734,7 @@ def compare_share(
     """
     params = CompareParams(
         coin=coin.strip().lower(),
-        hashrate=hashrate.strip(),
+        hashrate=_normalize_hashrate_str(hashrate),
         horizon_days=int(horizon_days),
         coin_price_usd=float(coin_price_usd),
         electricity_cost_per_kwh=float(electricity_cost_per_kwh),
@@ -768,6 +777,10 @@ async def api_compare_share(request: Request) -> JSONResponse:
     """
     try:
         raw = await request.json()
+         # normalize raw inputs before pydantic validates patterns, etc.
+        if isinstance(raw, dict):
+            raw['coin'] = _normalize_coin(raw.get('coin'))
+            raw['hashrate'] = _normalize_hashrate_str(raw.get('hashrate'))
         params = CompareParams(**raw)
     except Exception as exc:
         raise HTTPException(status_code=400, detail='Invalid compare inputs') from exc
@@ -884,9 +897,12 @@ def api_report(token: str) -> JSONResponse:
 @app.post('/api/v1/compare')
 def api_compare(req: CompareRequest) -> JSONResponse:
     try:
-        hr = parse_hashrate(req.hashrate)
+        coin = _normalize_coin(req.coin)
+        hashrate = _normalize_hashrate_str(req.hashrate)
+
+        hr = parse_hashrate(hashrate)
         store = SnapshotStore.from_repo_root()
-        snapshot = store.read_latest(req.coin)
+        snapshot = store.read_latest(coin)
 
         lambda_per_day = compute_lambda_per_day(
             your_hashrate_hs=hr.hs,
@@ -909,7 +925,7 @@ def api_compare(req: CompareRequest) -> JSONResponse:
             'schema_version': 1,
             'generated_at': _now_utc_iso(),
             'input': {
-                'coin': req.coin,
+                'coin': coin,
                 'hashrate_hs': hr.hs,
                 'hashrate_display': hr.format(),
                 'horizon_days': req.horizon_days,

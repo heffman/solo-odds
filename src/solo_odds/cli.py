@@ -164,13 +164,12 @@ def odds(
     step_pct: float = typer.Option(2.0, help="Step drift percent per step (e.g. 2 for +2%)"),
     step_days: int = typer.Option(14, help="Days per step for step drift"),
     daily_pct: float = typer.Option(0.0, help="Daily drift percent for linear drift (e.g. 0.1)"),
-    mc: int = typer.Option(0, help="Monte Carlo runs (v1: ignored; placeholder)"),
+    mc: int = typer.Option(0,help="Monte Carlo runs (0 disables)"),
     json: bool = typer.Option(False, help="Emit JSON output"),
 ) -> None:
     """
     Compute solo mining odds and variance-friendly analytics.
 
-    v1 includes analytic Poisson outputs. Monte Carlo will be wired later.
     """
     coin_norm = coin.strip().lower()
     if coin_norm not in ("btc", "bch"):
@@ -536,10 +535,6 @@ def plot(
     fig = plt.figure()
     ax = fig.add_subplot(111)
 
-    ax.plot(xs, ys)
-
-    ax.set_xlabel("Days")
-
     if y_mode == "p":
         ax.set_ylabel("P(>=1 block)")
         ax.set_ylim(0.0, 1.0)
@@ -551,6 +546,10 @@ def plot(
             ax.set_yscale("log")
             # Clamp values to avoid log(0)
             ys = [v if v > min_y else min_y for v in ys]
+
+    ax.plot(xs, ys)
+
+    ax.set_xlabel("Days")
 
     subtitle = f"hashrate={hr.format()} drift={drift_model.type} interval={interval_days}d"
     ax.set_title(title or f"{default_title}\n{subtitle}")
