@@ -23,6 +23,10 @@
       border-radius: 3px;
       cursor: default;
     }
+    .heatmap-cell.current {
+      outline: 2px solid rgba(33,37,41,0.75);
+      outline-offset: 1px;
+    }
     .heatmap-legend {
       display: flex;
       align-items: center;
@@ -91,9 +95,8 @@
 
           <div class="col-md-4">
             <label class="form-label">Pool fee (%)</label>
-            <div class="form-text">You can enter 2 or 0.02 or 2%</div>
             <input name="pool_fee_pct" type="number" step="0.001" class="form-control" value="{{ defaults.pool_fee_pct }}">
-            <div class="form-text">Example: 0.02 = 2%</div>
+            <div class="form-text">You can enter 2, 0.02, or 2% (we normalize).</div>
           </div>
 
           <div class="col-12">
@@ -331,19 +334,28 @@
   function renderHeatmap(grid) {
     if (!heatmapEl || !grid) return;
 
-    const prices = grid.price_usd || [];
-    const elec = grid.electricity_cost_per_kwh || [];
-    const z = grid.z_probability_negative_net || [];
-    const cur = grid.current_index || {x: 0, y: 0};
+    // Backend schema:
+    // grid.price_grid: [price...]
+    // grid.electricity_grid: [elec...]
+    // grid.probability_negative_net: [[p...]] rows by elec, cols by price
+    const prices = grid.price_grid || [];
+    const elec = grid.electricity_grid || [];
+    const z = grid.probability_negative_net || [];
 
     if (!prices.length || !elec.length || !z.length) {
       heatmapEl.innerHTML = '';
-      if (heatmapCaptionEl) heatmapCaptionEl.textContent = '';
+      if (heatmapStatus) heatmapStatus.textContent = '';
       return;
     }
 
     // grid columns = prices
     heatmapEl.style.gridTemplateColumns = `repeat(${prices.length}, 18px)`;
+
+    // Compute "current" index (nearest) from the form’s current inputs.
+    // This avoids needing backend to return a current_index.
+    const payload = toPayload();
+    const curX = nearestIndex(prices, Number(payload.coin_price_usd));
+    const curY = nearestIndex(elec, Number(payload.electricity_cost_per_kwh));
 
     // Build cells row-major: electricity rows top->bottom (we’ll render high->low so “higher elec” is visually higher)
     const rows = [];
@@ -355,7 +367,7 @@
         div.style.background = colorForProb(p);
 
         // Mark current input cell (nearest index)
-        if (x === Number(cur.x) && y === Number(cur.y)) {
+        if (x === curX && y === curY) {
           div.classList.add('current');
         }
 
@@ -369,9 +381,23 @@
 
     heatmapEl.replaceChildren(...rows);
 
-    if (heatmapCaptionEl) {
-      heatmapCaptionEl.textContent = `Grid: ${prices.length}×${elec.length} (price ~$${prices[0].toFixed(2)}..$${prices[prices.length-1].toFixed(2)}, elec ~$${elec[0].toFixed(3)}..$${elec[elec.length-1].toFixed(3)}/kWh)`;
+     if (heatmapStatus) {
+      heatmapStatus.textContent =
+        `Grid: ${prices.length}×${elec.length} (price $${Number(prices[0]).toFixed(2)}..$${Number(prices[prices.length-1]).toFixed(2)}, ` +
+        `elec $${Number(elec[0]).toFixed(3)}..$${Number(elec[elec.length-1]).toFixed(3)}/kWh)`;
     }
+  }
+
+  function nearestIndex(arr, target) {
+    if (!Array.isArray(arr) || arr.length === 0 || !Number.isFinite(target)) return 0;
+    let bestI = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < arr.length; i++) {
+      const v = Number(arr[i]);
+      const d = Math.abs(v - target);
+      if (d < bestD) { bestD = d; bestI = i; }
+    }
+    return bestI;
   }
 
   function binIndexForX(histData, x) {

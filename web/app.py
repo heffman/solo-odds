@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import hashlib
 import hmac
 import json
@@ -25,6 +26,7 @@ from solo_odds.sim.monte_carlo import MonteCarloError, run_monte_carlo, run_rein
 from solo_odds.units import UnitParseError, parse_hashrate
 
 app = FastAPI(title='solo-odds web')
+logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory='web/templates')
 app.mount('/static', StaticFiles(directory='web/static'), name='static')
 
@@ -1123,10 +1125,10 @@ def api_compare_heatmap(req: CompareHeatmapRequest) -> JSONResponse:
         elec_max = max(elec_min, base_elec * (1.0 + float(req.elec_span_pct)))
 
         price_grid = _linspace(price_min, price_max, int(req.price_steps))
-        elec_grid = _linspace(elec_min, elec_max, int(req.elec_steps))
+        electricity_grid = _linspace(elec_min, elec_max, int(req.elec_steps))
 
         matrix: List[List[float]] = []
-        for elec in elec_grid:
+        for elec in electricity_grid:
             row: List[float] = []
             for price in price_grid:
                 res = compare_solo_vs_pool(
@@ -1140,6 +1142,8 @@ def api_compare_heatmap(req: CompareHeatmapRequest) -> JSONResponse:
                 )
                 row.append(float(res.solo['probability_negative_net']))
             matrix.append(row)
+
+        probability_negative_net = matrix
 
         payload = {
             'schema_version': 1,
@@ -1173,3 +1177,6 @@ def api_compare_heatmap(req: CompareHeatmapRequest) -> JSONResponse:
         return JSONResponse(payload)
     except (UnitParseError, AnalyticError, EconomicCompareError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception('Heatmap error')
+        raise HTTPException(status_code=500, detail='Internal error') from exc
