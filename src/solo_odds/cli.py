@@ -532,8 +532,17 @@ def plot(
 
     out.parent.mkdir(parents=True, exist_ok=True)
 
+    # Clamp values to avoid log(0)
+    if y_mode == "mu" and log_y:
+        ys = [v if v > min_y else min_y for v in ys]
+
     fig = plt.figure()
     ax = fig.add_subplot(111)
+            
+
+    ax.plot(xs, ys)
+
+    ax.set_xlabel("Days")
 
     if y_mode == "p":
         ax.set_ylabel("P(>=1 block)")
@@ -544,12 +553,6 @@ def plot(
         default_title = f"Solo mining expected blocks ({coin_norm.upper()})"
         if log_y:
             ax.set_yscale("log")
-            # Clamp values to avoid log(0)
-            ys = [v if v > min_y else min_y for v in ys]
-
-    ax.plot(xs, ys)
-
-    ax.set_xlabel("Days")
 
     subtitle = f"hashrate={hr.format()} drift={drift_model.type} interval={interval_days}d"
     ax.set_title(title or f"{default_title}\n{subtitle}")

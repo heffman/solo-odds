@@ -272,6 +272,33 @@ def _seed_for_payload(payload: Dict[str, Any]) -> int:
     return int.from_bytes(h[:4], 'big', signed=False)
 
 
+def _histogram_from_points(values: List[float], weights: List[float], *, bin_width: float) -> Dict[str, Any]:
+    if not values:
+        return {'bin_width': bin_width, 'bins': [], 'prob': []}
+    vmin = min(values)
+    vmax = max(values)
+
+    # pad so 0 aligns nicely if possible
+    start = math.floor(vmin / bin_width) * bin_width
+    end = math.ceil(vmax / bin_width) * bin_width
+    nbins = int(round((end - start) / bin_width))
+    if nbins < 1:
+        nbins = 1
+
+    probs = [0.0] * nbins
+    for v, w in zip(values, weights):
+        idx = int((v - start) // bin_width)
+        if idx < 0:
+            idx = 0
+        if idx >= nbins:
+            idx = nbins - 1
+        probs[idx] += float(w)
+
+    bins = [start + i * bin_width for i in range(nbins)]
+    # bins represent left edge; prob is probability mass in that bin
+    return {'bin_width': float(bin_width), 'bins': bins, 'prob': probs}
+
+
 def _compute_compare(params: CompareParams, snapshot: NetworkSnapshot, seed: int) -> Dict[str, Any]:
     """
     Compare math for tokenized compare pages.
@@ -280,8 +307,6 @@ def _compute_compare(params: CompareParams, snapshot: NetworkSnapshot, seed: int
       - Use `snapshot` (frozen) rather than latest.json
       - Deterministic output per token (seed available if you later add MC)
     """
-    # TODO: Replace this placeholder with your real compare results.
-    # Keep the top-level structure stable so compare.html can render it.
     hr = parse_hashrate(params.hashrate)
 
     lambda_per_day = compute_lambda_per_day(
@@ -301,6 +326,24 @@ def _compute_compare(params: CompareParams, snapshot: NetworkSnapshot, seed: int
         electricity_cost_per_kwh=float(params.electricity_cost_per_kwh),
         pool_fee_pct=float(params.pool_fee_pct),
     )
+
+    dist = res.solo_distribution
+    weights = [p.probability for p in dist]
+    solo_net_values = [p.net_usd for p in dist]
+    pool_net = float(res.pool['expected_net_usd'])
+    delta_values = [p.net_usd - pool_net for p in dist]
+
+    # Choose bin width heuristically: $50 for small ranges, else $100/$250
+    span = max(solo_net_values) - min(solo_net_values) if solo_net_values else 0.0
+    if span <= 2000:
+        bin_width = 50.0
+    elif span <= 10000:
+        bin_width = 100.0
+    else:
+        bin_width = 250.0
+
+    solo_hist = _histogram_from_points(solo_net_values, weights, bin_width=bin_width)
+    delta_hist = _histogram_from_points(delta_values, weights, bin_width=bin_width)
 
     return {
         'schema_version': 1,
@@ -323,6 +366,12 @@ def _compute_compare(params: CompareParams, snapshot: NetworkSnapshot, seed: int
         'solo': res.solo,
         'pool': res.pool,
         'comparison': res.comparison,
+        'distributions': {
+            'solo_net_usd': solo_hist,
+            'delta_vs_pool_usd': delta_hist,
+            'pool_expected_net_usd': pool_net,
+            'solo_expected_net_usd': float(res.solo['expected_net_usd']),
+        },
         'notes': [
             'Pool is modeled as expected value (deterministic) for v1 compare.',
             'Solo is modeled as Poisson variance on blocks over the horizon.',
@@ -602,10 +651,9 @@ def methods(request: Request) -> HTMLResponse:
 @app.get('/compare', response_class=HTMLResponse)
 def compare_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
-        'compare.html',
+        'compare_form.html',
         {
             'request': request,
-            'token_mode': False,
             'defaults': {
                 'coin': 'bch',
                 'hashrate': '9.4TH',
@@ -816,13 +864,11 @@ def compare_from_token(token: str, request: Request) -> HTMLResponse:
     )
 
     return templates.TemplateResponse(
-        'compare.html',
+        'compare_report.html',
         {
             'request': request,
             'token': token,
             'result': result,
-            # tells template it is token-rendered mode
-            'token_mode': True,
         },
     )
 
@@ -900,49 +946,38 @@ def api_compare(req: CompareRequest) -> JSONResponse:
         coin = _normalize_coin(req.coin)
         hashrate = _normalize_hashrate_str(req.hashrate)
 
-        hr = parse_hashrate(hashrate)
+        params = CompareParams(
+            coin=coin,
+            hashrate=hashrate,
+            horizon_days=req.horizon_days,
+            coin_price_usd=req.coin_price_usd,
+            electricity_cost_per_kwh=req.electricity_cost_per_kwh,
+            asic_power_watts=req.asic_power_watts,
+            pool_fee_pct=req.pool_fee_pct,
+            mc_runs=req.mc_runs,
+        )
+
         store = SnapshotStore.from_repo_root()
         snapshot = store.read_latest(coin)
 
-        lambda_per_day = compute_lambda_per_day(
-            your_hashrate_hs=hr.hs,
-            network_hashrate_hs=snapshot.network_hashrate_hs,
-            blocks_per_day=snapshot.blocks_per_day,
-        )
-        mu = float(lambda_per_day) * float(req.horizon_days)
-
-        res = compare_solo_vs_pool(
-            mu=mu,
-            block_reward=float(snapshot.block_reward),
-            coin_price_usd=float(req.coin_price_usd),
-            horizon_days=float(req.horizon_days),
-            asic_power_watts=float(req.asic_power_watts),
-            electricity_cost_per_kwh=float(req.electricity_cost_per_kwh),
-            pool_fee_pct=float(req.pool_fee_pct),
-        )
-
-        payload = {
-            'schema_version': 1,
-            'generated_at': _now_utc_iso(),
-            'input': {
-                'coin': coin,
-                'hashrate_hs': hr.hs,
-                'hashrate_display': hr.format(),
-                'horizon_days': req.horizon_days,
-                'coin_price_usd': req.coin_price_usd,
-                'electricity_cost_per_kwh': req.electricity_cost_per_kwh,
-                'asic_power_watts': req.asic_power_watts,
-                'pool_fee_pct': req.pool_fee_pct,
-                'mc_runs': req.mc_runs,
-            },
-            'network_snapshot': _network_snapshot_to_report(snapshot),
-            'mu': res.mu,
-            'revenue_per_block_usd': res.revenue_per_block_usd,
-            'electricity_cost_usd': res.electricity_cost_usd,
-            'solo': res.solo,
-            'pool': res.pool,
-            'comparison': res.comparison,
+        # deterministic seed for non-token API (so refresh is stable)
+        seed_payload = {
+            'coin': coin,
+            'hashrate': hashrate,
+            'horizon_days': req.horizon_days,
+            'coin_price_usd': req.coin_price_usd,
+            'electricity_cost_per_kwh': req.electricity_cost_per_kwh,
+            'asic_power_watts': req.asic_power_watts,
+            'pool_fee_pct': req.pool_fee_pct,
         }
+        seed = _seed_for_payload(seed_payload)
+
+        payload = _compute_compare(
+            params=params,
+            snapshot=snapshot,
+            seed=seed,
+        )
+
         return JSONResponse(payload)
     except (UnitParseError, AnalyticError, EconomicCompareError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

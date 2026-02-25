@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Solo vs Pool Comparison</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/site.css?v=2.1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-body">
+  <div class="container container-narrow py-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1 class="h3 mb-0">Solo vs Pool Risk Comparison</h1>
+      <div class="d-flex gap-3">
+        <a href="/" class="link-secondary">Home</a>
+        <a href="/methods" class="link-secondary">Methods</a>
+      </div>
+    </div>
+
+    <div class="card p-3 mb-4">
+      <form id="compare-form">
+        <div class="row g-3">
+
+          <div class="col-md-4">
+            <label class="form-label">Coin</label>
+            <select name="coin" class="form-select">
+              <option value="btc" {% if defaults.coin == 'btc' %}selected{% endif %}>BTC</option>
+              <option value="bch" {% if defaults.coin == 'bch' %}selected{% endif %}>BCH</option>
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Hashrate</label>
+            <input name="hashrate" class="form-control" value="{{ defaults.hashrate }}">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Horizon (days)</label>
+            <input name="horizon_days" type="number" class="form-control" value="{{ defaults.horizon_days }}">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Coin price (USD)</label>
+            <input name="coin_price_usd" type="number" step="0.01" class="form-control" value="{{ defaults.coin_price_usd }}">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Electricity cost ($/kWh)</label>
+            <input name="electricity_cost_per_kwh" type="number" step="0.001" class="form-control" value="{{ defaults.electricity_cost_per_kwh }}">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">ASIC power (watts)</label>
+            <input name="asic_power_watts" type="number" class="form-control" value="{{ defaults.asic_power_watts }}">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Pool fee (fraction)</label>
+            <input name="pool_fee_pct" type="number" step="0.001" class="form-control" value="{{ defaults.pool_fee_pct }}">
+            <div class="form-text">Example: 0.02 = 2%</div>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Monte Carlo runs</label>
+            <input name="mc_runs" type="number" class="form-control" value="{{ defaults.mc_runs }}">
+            <div class="form-text">Reserved for later (not used in v1 compare math yet).</div>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Histogram scale</label>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="log-y">
+              <label class="form-check-label" for="log-y">Log Y (tails)</label>
+            </div>
+            <div class="form-text">Useful when one bin dominates and tails are hard to see.</div>
+          </div>
+
+        </div>
+
+        <div class="mt-3 d-flex gap-2">
+          <button type="submit" class="btn btn-primary">Compare</button>
+
+          <button id="share-btn" type="button" class="btn btn-outline-secondary" disabled>
+            Copy share link
+          </button>
+        </div>
+
+        <div class="mt-2 small text-body-secondary" id="share-status"></div>
+      </form>
+    </div>
+
+    <div id="results" style="display:none;">
+      <div class="alert alert-warning fw-semibold" id="regret-alert"></div>
+
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="card p-3">
+            <h2 class="h6">Solo</h2>
+            <div id="solo-results"></div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card p-3">
+            <h2 class="h6">Pool</h2>
+            <div id="pool-results"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mt-2">
+        <div class="col-12">
+          <div class="small text-body-secondary">
+            Lines: <span class="fw-semibold">EV</span>, <span class="fw-semibold">Breakeven (0)</span>. Shaded region indicates <span class="fw-semibold">net &lt; 0</span>.
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card p-3">
+            <h2 class="h6">Solo Net Distribution (USD)</h2>
+            <canvas id="solo-histogram"></canvas>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card p-3">
+            <h2 class="h6">Solo vs Pool Delta (USD)</h2>
+            <canvas id="delta-histogram"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const form = document.getElementById('compare-form');
+  const resultsEl = document.getElementById('results');
+  const shareBtn = document.getElementById('share-btn');
+  const shareStatus = document.getElementById('share-status');
+  const logYToggle = document.getElementById('log-y');
+
+  let soloChart = null;
+  let deltaChart = null;
+
+  function normalizeHashrate(s) {
+    if (s == null) return '';
+    return String(s).trim().replace(/\s+/g, '').toUpperCase();
+  }
+
+  function toPayload() {
+    const formData = new FormData(form);
+    const payload = Object.fromEntries(formData.entries());
+
+    payload.coin = String(payload.coin || '').trim().toLowerCase();
+    payload.hashrate = normalizeHashrate(payload.hashrate);
+
+    payload.horizon_days = Number(payload.horizon_days);
+    payload.coin_price_usd = Number(payload.coin_price_usd);
+    payload.electricity_cost_per_kwh = Number(payload.electricity_cost_per_kwh);
+    payload.asic_power_watts = Number(payload.asic_power_watts);
+    payload.pool_fee_pct = Number(payload.pool_fee_pct);
+    payload.mc_runs = Number(payload.mc_runs);
+
+    return payload;
+  }
+
+  function binIndexForX(histData, x) {
+    if (!histData || !Array.isArray(histData.bins) || histData.bins.length === 0) return null;
+    const start = Number(histData.bins[0]);
+    const w = Number(histData.bin_width || 0);
+    if (!Number.isFinite(start) || !Number.isFinite(w) || w <= 0) return null;
+    const idx = Math.floor((Number(x) - start) / w);
+    if (!Number.isFinite(idx)) return null;
+    if (idx < 0) return 0;
+    if (idx >= histData.bins.length) return histData.bins.length - 1;
+    return idx;
+  }
+
+  const histogramAnnotationsPlugin = {
+    id: 'histogramAnnotations',
+    afterDatasetsDraw(chart, args, pluginOptions) {
+      const opts = pluginOptions || {};
+      const ctx = chart.ctx;
+      const xScale = chart.scales.x;
+      const yScale = chart.scales.y;
+      if (!xScale || !yScale) return;
+
+      // Shade loss region (bins strictly left of breakeven bin)
+      if (opts.lossShade && Number.isInteger(opts.breakevenIndex)) {
+        const left = xScale.getPixelForTick(0);
+        const right = xScale.getPixelForTick(opts.breakevenIndex);
+        const top = yScale.top;
+        const bottom = yScale.bottom;
+        if (right > left) {
+          ctx.save();
+          ctx.fillStyle = 'rgba(220,53,69,0.10)'; // bootstrap danger-ish tint
+          ctx.fillRect(left, top, right - left, bottom - top);
+          ctx.restore();
+        }
+      }
+
+      function drawVLine(idx, color, label) {
+        if (!Number.isInteger(idx)) return;
+        const x = xScale.getPixelForTick(idx);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, yScale.top);
+        ctx.lineTo(x, yScale.bottom);
+        ctx.stroke();
+
+        if (label) {
+          ctx.fillStyle = color;
+          ctx.font = '12px sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(label, x + 4, yScale.top + 4);
+        }
+        ctx.restore();
+      }
+
+      // Breakeven line (net = 0)
+      if (Number.isInteger(opts.breakevenIndex)) {
+        drawVLine(opts.breakevenIndex, 'rgba(33,37,41,0.85)', '0');
+      }
+
+      // EV line(s)
+      if (Number.isInteger(opts.evIndex)) {
+        drawVLine(opts.evIndex, 'rgba(13,110,253,0.85)', 'EV');
+      }
+      if (Number.isInteger(opts.ev2Index)) {
+        drawVLine(opts.ev2Index, 'rgba(102,16,242,0.85)', 'EV');
+      }
+    }
+  };
+
+  function renderHistogram(canvasId, histData, label, annotation) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx || !histData || !histData.bins) return null;
+
+    const labels = histData.bins.map(b => b.toFixed(0));
+    const values = histData.prob.map(p => p * 100.0);
+
+    const useLogY = !!(logYToggle && logYToggle.checked);
+
+    const breakevenIndex = binIndexForX(histData, 0.0);
+    const evIndex = (annotation && Number.isFinite(annotation.ev))
+      ? binIndexForX(histData, annotation.ev)
+      : null;
+    const ev2Index = (annotation && Number.isFinite(annotation.ev2))
+      ? binIndexForX(histData, annotation.ev2)
+      : null;
+
+    return new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: label,
+          data: values,
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: {
+            title: { display: true, text: 'USD (bin left edge)' }
+          },
+          y: {
+            title: { display: true, text: 'Probability (%)' },
+            beginAtZero: true,
+            type: useLogY ? 'logarithmic' : 'linear',
+            // log scale can't include 0; Chart.js will handle, but keep safe:
+            min: useLogY ? 0.001 : undefined
+          }
+        }
+      },
+      plugins: [{
+        ...histogramAnnotationsPlugin,
+        // Per-chart options
+        afterDatasetsDraw: histogramAnnotationsPlugin.afterDatasetsDraw
+      }],
+      // plugin options live here in v4:
+      plugins: {
+        histogramAnnotations: {
+          lossShade: true,
+          breakevenIndex: breakevenIndex,
+          evIndex: evIndex,
+          ev2Index: ev2Index,
+        }
+      }
+    });
+  }
+
+  function render(data) {
+    const regret = data.comparison.probability_solo_underperforms_pool;
+    const regretPct = (regret * 100).toFixed(1);
+    document.getElementById('regret-alert').innerText =
+      `Probability solo underperforms pool: ${regretPct}%`;
+
+    document.getElementById('solo-results').innerHTML = `
+      <div>Expected net: $${data.solo.expected_net_usd.toFixed(2)}</div>
+      <div>P10 net: $${data.solo.p10_net_usd.toFixed(2)}</div>
+      <div>P50 net: $${data.solo.p50_net_usd.toFixed(2)}</div>
+      <div>P90 net: $${data.solo.p90_net_usd.toFixed(2)}</div>
+      <div>Probability negative net: ${(data.solo.probability_negative_net*100).toFixed(1)}%</div>
+      <div>Probability zero blocks: ${(data.solo.probability_zero_blocks*100).toFixed(1)}%</div>
+    `;
+
+    document.getElementById('pool-results').innerHTML = `
+      <div>Expected net: $${data.pool.expected_net_usd.toFixed(2)}</div>
+    `;
+
+    resultsEl.style.display = 'block';
+
+    if (soloChart) {
+      soloChart.destroy();
+      soloChart = null;
+    }
+    if (deltaChart) {
+      deltaChart.destroy();
+      deltaChart = null;
+    }
+
+    if (data.distributions) {
+      soloChart = renderHistogram(
+        'solo-histogram',
+        data.distributions.solo_net_usd,
+        'Solo Net (%)',
+        {
+          ev: data.distributions.solo_expected_net_usd,
+          ev2: data.distributions.pool_expected_net_usd
+        }
+      );
+
+      deltaChart = renderHistogram(
+        'delta-histogram',
+        data.distributions.delta_vs_pool_usd,
+        'Solo - Pool Net (%)',
+        {
+          ev: data.distributions.solo_expected_net_usd - data.distributions.pool_expected_net_usd
+        }
+      );
+    }
+  }
+
+  async function compute() {
+    const payload = toPayload();
+
+    const res = await fetch('/api/v1/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const err = await res.json();
+        detail = JSON.stringify(err, null, 2);
+      } catch (_) {}
+      alert(`Error computing comparison. HTTP ${res.status}\n\n${detail}`);
+      return;
+    }
+
+    const data = await res.json();
+    render(data);
+
+    shareBtn.disabled = false;
+    shareStatus.textContent = '';
+  }
+
+  async function share() {
+    const payload = toPayload();
+
+    const res = await fetch('/api/compare/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const err = await res.json();
+        detail = JSON.stringify(err, null, 2);
+      } catch (_) {}
+      alert(`Error creating share link. HTTP ${res.status}\n\n${detail}`);
+      return;
+    }
+
+    const data = await res.json();
+    const url = `${window.location.origin}${data.url}`;
+
+    try {
+      await navigator.clipboard.writeText(url);
+      shareStatus.textContent = 'Share link copied.';
+      setTimeout(() => { shareStatus.textContent = ''; }, 1500);
+    } catch (e) {
+      window.prompt('Copy this link:', url);
+    }
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await compute();
+    });
+  }
+
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async () => {
+      await share();
+    });
+  }
+
+  if (logYToggle) {
+    logYToggle.addEventListener('change', () => {
+      // If results already shown, re-render charts in-place.
+      if (resultsEl && resultsEl.style.display !== 'none') {
+        // Best effort: rerun compute with same inputs so numbers stay consistent.
+        compute();
+      }
+    });
+  }
+
+})();
+</script>
+
+</body>
+</html>
