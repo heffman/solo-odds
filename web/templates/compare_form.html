@@ -7,6 +7,11 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="/static/site.css?v=2.1">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    .metric-kv { display:flex; justify-content:space-between; gap:1rem; }
+    .metric-kv .k { color: #6c757d; }
+    .metric-kv .v { font-weight: 600; }
+  </style>
 </head>
 <body class="bg-body">
   <div class="container container-narrow py-4">
@@ -57,15 +62,23 @@
           </div>
 
           <div class="col-md-4">
-            <label class="form-label">Pool fee (fraction)</label>
+            <label class="form-label">Pool fee (%)</label>
+            <div class="form-text">You can enter 2 or 0.02 or 2%</div>
             <input name="pool_fee_pct" type="number" step="0.001" class="form-control" value="{{ defaults.pool_fee_pct }}">
             <div class="form-text">Example: 0.02 = 2%</div>
           </div>
 
-          <div class="col-md-4">
-            <label class="form-label">Monte Carlo runs</label>
-            <input name="mc_runs" type="number" class="form-control" value="{{ defaults.mc_runs }}">
-            <div class="form-text">Reserved for later (not used in v1 compare math yet).</div>
+          <div class="col-12">
+            <details class="mt-1">
+              <summary class="text-body-secondary">Advanced</summary>
+              <div class="row g-3 mt-1">
+                <div class="col-md-4">
+                  <label class="form-label">Monte Carlo runs</label>
+                  <input name="mc_runs" type="number" class="form-control" value="{{ defaults.mc_runs }}">
+                  <div class="form-text">Reserved for later (not used in v1 compare math yet).</div>
+                </div>
+              </div>
+            </details>
           </div>
 
           <div class="col-md-4">
@@ -92,7 +105,50 @@
     </div>
 
     <div id="results" style="display:none;">
-      <div class="alert alert-warning fw-semibold" id="regret-alert"></div>
+      <!-- Headline + EV delta -->
+      <div class="card p-3 mb-3">
+        <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2">
+          <div>
+            <div class="text-body-secondary">Decision signal</div>
+            <div class="h5 mb-0" id="headline"></div>
+            <div class="small text-body-secondary mt-1" id="headline-sub"></div>
+          </div>
+          <div class="text-end">
+            <div class="text-body-secondary">Expected value delta</div>
+            <div class="h5 mb-0" id="ev-delta"></div>
+            <div class="small text-body-secondary mt-1">(Solo EV − Pool EV)</div>
+          </div>
+        </div>
+      </div>
+      <!-- Key probabilities + interpretation -->
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">
+          <div class="card p-3">
+            <div class="text-body-secondary">Key probabilities</div>
+            <div class="mt-2 metric-kv">
+              <div class="k">P(0 blocks)</div>
+              <div class="v" id="p0"></div>
+            </div>
+            <div class="mt-1 metric-kv">
+              <div class="k">P(lose money)</div>
+              <div class="v" id="pneg"></div>
+            </div>
+            <div class="mt-1 metric-kv">
+              <div class="k">P(solo underperforms pool)</div>
+              <div class="v" id="regret"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card p-3">
+            <div class="text-body-secondary">Interpretation</div>
+            <div class="mt-2" id="meaning"></div>
+            <div class="small text-body-secondary mt-2">
+              Rule of thumb: if <span class="fw-semibold">P(0 blocks)</span> is high, solo behaves like a lottery even if EV is positive.
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="row g-3">
         <div class="col-md-6">
@@ -112,7 +168,7 @@
       <div class="row g-3 mt-2">
         <div class="col-12">
           <div class="small text-body-secondary">
-            Lines: <span class="fw-semibold">EV</span>, <span class="fw-semibold">Breakeven (0)</span>. Shaded region indicates <span class="fw-semibold">net &lt; 0</span>.
+            Bars: probability mass by outcome bin. Lines: <span class="fw-semibold">EV</span> and <span class="fw-semibold">Breakeven (0)</span>. Shading: <span class="fw-semibold">net &lt; 0</span>.
           </div>
         </div>
         <div class="col-md-6">
@@ -139,12 +195,47 @@
   const shareStatus = document.getElementById('share-status');
   const logYToggle = document.getElementById('log-y');
 
+  const headlineEl = document.getElementById('headline');
+  const headlineSubEl = document.getElementById('headline-sub');
+  const evDeltaEl = document.getElementById('ev-delta');
+  const p0El = document.getElementById('p0');
+  const pnegEl = document.getElementById('pneg');
+  const regretEl = document.getElementById('regret');
+  const meaningEl = document.getElementById('meaning');
+
   let soloChart = null;
   let deltaChart = null;
+  let lastData = null;
 
   function normalizeHashrate(s) {
     if (s == null) return '';
     return String(s).trim().replace(/\s+/g, '').toUpperCase();
+  }
+
+  function normalizePoolFee(value) {
+    if (value == null) return 0;
+
+    let s = String(value).trim();
+
+    // Handle "2%" style input
+    const hasPercent = s.endsWith('%');
+    if (hasPercent) {
+      s = s.slice(0, -1);
+    }
+
+    let n = Number(s);
+    if (!Number.isFinite(n) || n < 0) return 0;
+
+    // If user typed 2 (meaning 2%), convert to 0.02
+    // Heuristic: anything > 1 is assumed to be percent input.
+    if (n > 1 || hasPercent) {
+      n = n / 100.0;
+    }
+
+    // Clamp to backend-allowed range
+    if (n > 0.25) n = 0.25;
+
+    return n;
   }
 
   function toPayload() {
@@ -158,7 +249,7 @@
     payload.coin_price_usd = Number(payload.coin_price_usd);
     payload.electricity_cost_per_kwh = Number(payload.electricity_cost_per_kwh);
     payload.asic_power_watts = Number(payload.asic_power_watts);
-    payload.pool_fee_pct = Number(payload.pool_fee_pct);
+    payload.pool_fee_pct = normalizePoolFee(payload.pool_fee_pct);
     payload.mc_runs = Number(payload.mc_runs);
 
     return payload;
@@ -294,10 +385,41 @@
   }
 
   function render(data) {
-    const regret = data.comparison.probability_solo_underperforms_pool;
+    lastData = data;
+
+    const p0 = Number(data?.solo?.probability_zero_blocks ?? 0);
+    const pneg = Number(data?.solo?.probability_negative_net ?? 0);
+    const regret = Number(data?.comparison?.probability_solo_underperforms_pool ?? 0);
+
+    const soloEv = Number(data?.solo?.expected_net_usd ?? 0);
+    const poolEv = Number(data?.pool?.expected_net_usd ?? 0);
+    const deltaEv = Number(data?.comparison?.expected_value_delta_usd ?? (soloEv - poolEv));
+
+    const p0Pct = (p0 * 100).toFixed(1);
+    const pnegPct = (pneg * 100).toFixed(1);
     const regretPct = (regret * 100).toFixed(1);
-    document.getElementById('regret-alert').innerText =
-      `Probability solo underperforms pool: ${regretPct}%`;
+
+    if (headlineEl) headlineEl.textContent = `P(solo underperforms pool): ${regretPct}%`;
+    if (headlineSubEl) headlineSubEl.textContent =
+      `Chance solo ends the horizon with less net $ than pool (given these inputs).`;
+    if (evDeltaEl) evDeltaEl.textContent = `${deltaEv >= 0 ? '+' : ''}$${deltaEv.toFixed(2)}`;
+
+    if (p0El) p0El.textContent = `${p0Pct}%`;
+    if (pnegEl) pnegEl.textContent = `${pnegPct}%`;
+    if (regretEl) regretEl.textContent = `${regretPct}%`;
+
+    if (meaningEl) {
+      if (p0 >= 0.85) {
+        meaningEl.innerHTML = `<div class="fw-semibold">Lottery profile.</div>
+          <div class="text-body-secondary">Most outcomes are “0 blocks” (net ≈ −electricity), with rare big wins.</div>`;
+      } else if (p0 >= 0.50) {
+        meaningEl.innerHTML = `<div class="fw-semibold">High variance.</div>
+          <div class="text-body-secondary">A large share of outcomes are 0 blocks; use solo only if you accept long dry spells.</div>`;
+      } else {
+        meaningEl.innerHTML = `<div class="fw-semibold">Less extreme variance.</div>
+          <div class="text-body-secondary">Outcomes are more spread; EV starts to align better with typical results.</div>`;
+      }
+    }
 
     document.getElementById('solo-results').innerHTML = `
       <div>Expected net: $${data.solo.expected_net_usd.toFixed(2)}</div>
@@ -313,6 +435,7 @@
     `;
 
     resultsEl.style.display = 'block';
+    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     if (soloChart) {
       soloChart.destroy();
@@ -418,9 +541,25 @@
   if (logYToggle) {
     logYToggle.addEventListener('change', () => {
       // If results already shown, re-render charts in-place.
-      if (resultsEl && resultsEl.style.display !== 'none') {
-        // Best effort: rerun compute with same inputs so numbers stay consistent.
-        compute();
+      // Re-render charts only (no network call). Numbers should not change.
+      if (!lastData || !resultsEl || resultsEl.style.display === 'none') return;
+
+      if (soloChart) { soloChart.destroy(); soloChart = null; }
+      if (deltaChart) { deltaChart.destroy(); deltaChart = null; }
+
+      if (lastData.distributions) {
+        soloChart = renderHistogram(
+          'solo-histogram',
+          lastData.distributions.solo_net_usd,
+          'Solo Net (%)',
+          { ev: lastData.distributions.solo_expected_net_usd, ev2: lastData.distributions.pool_expected_net_usd }
+        );
+        deltaChart = renderHistogram(
+          'delta-histogram',
+          lastData.distributions.delta_vs_pool_usd,
+          'Solo - Pool Net (%)',
+          { ev: lastData.distributions.solo_expected_net_usd - lastData.distributions.pool_expected_net_usd }
+        );
       }
     });
   }
