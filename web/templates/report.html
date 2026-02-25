@@ -41,8 +41,9 @@
             <span class="share-box flex-grow-1">
               <a href="/r/{{ token }}">/r/{{ token }}</a>
             </span>
-            <button id="copy-link" type="button" class="btn btn-outline-secondary btn-sm">Copy</button>
-            <span id="copy-status" class="text-body-secondary small"></span>
+            <button id="copy-share" type="button" class="btn btn-outline-secondary btn-sm">
+              Copy share link
+            </button>
           </div>
 
           <div class="d-flex flex-wrap align-items-center gap-2">
@@ -50,7 +51,12 @@
             <span class="share-box flex-grow-1">
               <a href="{{ api_url }}">{{ api_url }}</a>
             </span>
+            <button id="copy-api" type="button" class="btn btn-outline-secondary btn-sm">
+              Copy JSON API
+            </button>
           </div>
+
+          <div class="mt-1 small text-body-secondary" id="copy-status"></div>
 
           <div class="text-body-secondary small">
             Snapshot frozen at: {{ report.network_snapshot.timestamp }}
@@ -235,6 +241,46 @@
 
 <script>
   (function () {
+    function setStatus(msg) {
+      const el = document.getElementById('copy-status');
+      if (!el) return;
+      el.textContent = msg || '';
+      if (msg) {
+        window.clearTimeout(window.__copyStatusTimer);
+        window.__copyStatusTimer = window.setTimeout(() => {
+          el.textContent = '';
+        }, 1500);
+      }
+    }
+
+    async function copyText(label, text) {
+      const value = String(text || '');
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        setStatus(`${label} copied.`);
+      } catch (e) {
+        // Fallback when Clipboard API is blocked (non-HTTPS, permissions, etc.)
+        window.prompt(`Copy this ${label}:`, value);
+        setStatus('');
+      }
+    }
+
+    const shareBtn = document.getElementById('copy-share');
+    const apiBtn = document.getElementById('copy-api');
+    if (shareBtn) {
+      shareBtn.addEventListener('click', async () => {
+        const url = `${window.location.origin}/r/{{ token }}`;
+        await copyText('Share link', url);
+      });
+    }
+    if (apiBtn) {
+      apiBtn.addEventListener('click', async () => {
+        const url = `${window.location.origin}{{ api_url }}`;
+        await copyText('JSON API', url);
+      });
+    }
+
     const canvas = document.getElementById('curve');
     if (!canvas) return;
 

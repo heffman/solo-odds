@@ -27,7 +27,7 @@
       <div class="alert alert-warning py-2">Waitlist: invalid email.</div>
     {% endif %}
 
-    <form method="post" action="/share" class="card p-3 mb-4">
+    <form id="report-form" method="post" action="/share" class="card p-3 mb-4">
       <div class="row g-3">
         <div class="col-12 col-md-4">
           <label class="form-label">Coin</label>
@@ -98,8 +98,15 @@
         </div>
       </div>
 
-      <div class="mt-3">
+      <div class="mt-3 d-flex gap-2 align-items-center flex-wrap">
         <button type="submit" class="btn btn-primary">Generate share link</button>
+        <button id="gen-copy" type="button" class="btn btn-outline-secondary">
+          Generate + copy link
+        </button>
+        <button id="copy-link" type="button" class="btn btn-outline-secondary" disabled>
+          Copy link
+        </button>
+        <span class="small text-body-secondary" id="gen-status"></span>
       </div>
     </form>
 
@@ -144,6 +151,113 @@
     }
     cb.addEventListener('change', sync);
     sync();
+  })();
+</script>
+
+<script>
+  (function () {
+    const form = document.getElementById('report-form');
+    const btn = document.getElementById('gen-copy');
+    const copyBtn = document.getElementById('copy-link');
+    const statusEl = document.getElementById('gen-status');
+    if (!form || !btn) return;
+
+    let lastShareUrl = '';
+
+    function setStatus(msg) {
+      if (!statusEl) return;
+      statusEl.textContent = msg || '';
+      if (msg) {
+        window.clearTimeout(window.__genStatusTimer);
+        window.__genStatusTimer = window.setTimeout(() => {
+          statusEl.textContent = '';
+        }, 1500);
+      }
+    }
+
+    function normalizeHashrate(s) {
+      if (s == null) return '';
+      return String(s).trim().replace(/\s+/g, '').toUpperCase();
+    }
+
+    function toPayload() {
+      const fd = new FormData(form);
+      const payload = Object.fromEntries(fd.entries());
+
+      // Minimal normalization (matches compare page)
+      payload.coin = String(payload.coin || '').trim().toLowerCase();
+      payload.hashrate = normalizeHashrate(payload.hashrate);
+
+      // Coerce numerics the API expects
+      payload.days = Number(payload.days);
+      payload.interval_days = Number(payload.interval_days);
+      payload.step_pct = Number(payload.step_pct);
+      payload.step_days = Number(payload.step_days);
+      payload.daily_pct = Number(payload.daily_pct);
+      payload.mc = Number(payload.mc);
+      payload.reinvest = !!fd.get('reinvest'); // checkbox
+      payload.reinvest_multiplier = Number(payload.reinvest_multiplier);
+
+      return payload;
+    }
+
+    async function copyText(label, text) {
+      const value = String(text || '');
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        setStatus(`${label} copied.`);
+      } catch (e) {
+        window.prompt(`Copy this ${label}:`, value);
+        setStatus('');
+      }
+    }
+
+    function setLastUrl(url) {
+      lastShareUrl = String(url || '');
+      if (copyBtn) {
+        copyBtn.disabled = !lastShareUrl;
+      }
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      setStatus('Generating…');
+
+      const payload = toPayload();
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      btn.disabled = false;
+
+      if (!res.ok) {
+        let detail = '';
+        try {
+          const err = await res.json();
+          detail = JSON.stringify(err, null, 2);
+        } catch (_) {}
+        alert(`Error generating share link. HTTP ${res.status}\n\n${detail}`);
+        setStatus('');
+        setLastUrl('');
+        return;
+      }
+
+      const data = await res.json(); // { token, url }
+      const url = `${window.location.origin}${data.url}`;
+      setLastUrl(url);
+      await copyText('Share link', url);
+    });
+
+    if (copyBtn) {
+      copyBtn.addEventListener('click', async () => {
+        if (!lastShareUrl) return;
+        await copyText('Share link', lastShareUrl);
+      });
+    }
+
   })();
 </script>
 </body>

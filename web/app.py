@@ -81,6 +81,22 @@ class TokenPayloadV2(BaseModel):
     snapshot: Dict[str, Any]
 
 
+class ShareRequest(BaseModel):
+    # JSON equivalent of the /share form
+    model_config = ConfigDict(extra='forbid')
+    coin: str = Field(pattern='^(btc|bch)$')
+    hashrate: str = Field(min_length=1)
+    days: int = Field(ge=1, le=3650)
+    interval_days: int = Field(ge=1, le=365)
+    drift: str = Field(pattern='^(flat|step|linear)$')
+    step_pct: float = 2.0
+    step_days: int = 14
+    daily_pct: float = 0.0
+    mc: int = Field(ge=0, le=200000)
+    reinvest: bool = False
+    reinvest_multiplier: float = Field(2.0, ge=1.0, le=20.0)
+
+
 class CompareParams(BaseModel):
     model_config = ConfigDict(extra='forbid')
     coin: str = Field(pattern='^(btc|bch)$')
@@ -764,6 +780,66 @@ def share(
 
     return RedirectResponse(url=f'/r/{token}', status_code=303)
 
+@app.post('/api/share')
+async def api_share(request: Request) -> JSONResponse:
+    """
+    JSON variant of /share.
+    Returns {token, url} so the landing page can copy/share without a redirect.
+    """
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            raw['coin'] = _normalize_coin(raw.get('coin'))
+            raw['hashrate'] = _normalize_hashrate_str(raw.get('hashrate'))
+        req = ShareRequest(**raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Invalid share inputs') from exc
+
+    params = ShareParams(
+        coin=req.coin,
+        hashrate=req.hashrate,
+        days=int(req.days),
+        interval_days=int(req.interval_days),
+        drift=req.drift,
+        step_pct=float(req.step_pct),
+        step_days=int(req.step_days),
+        daily_pct=float(req.daily_pct),
+        mc=int(req.mc),
+        reinvest=bool(req.reinvest),
+        reinvest_multiplier=float(req.reinvest_multiplier),
+    )
+
+    store = SnapshotStore.from_repo_root()
+    snapshot = store.read_latest(params.coin)
+
+    token_payload = {
+        'v': 2,
+        'params': params.model_dump(),
+        'snapshot': snapshot.to_dict(),
+    }
+    token = make_token(token_payload)
+
+    _append_metrics(
+        {
+            'ts': _now_utc_iso(),
+            'event': 'share_created',
+            'token_fp': _token_fingerprint(token),
+            'coin': params.coin,
+            'hashrate': params.hashrate,
+            'days': params.days,
+            'interval_days': params.interval_days,
+            'drift': params.drift,
+            'step_pct': params.step_pct,
+            'step_days': params.step_days,
+            'daily_pct': params.daily_pct,
+            'mc': params.mc,
+            'reinvest': params.reinvest,
+            'reinvest_multiplier': params.reinvest_multiplier,
+            'meta': _request_meta(request),
+        }
+    )
+
+    return JSONResponse({'token': token, 'url': f'/r/{token}'})
 
 @app.post('/compare/share')
 def compare_share(
