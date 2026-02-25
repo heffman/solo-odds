@@ -1161,9 +1161,14 @@ def api_compare_heatmap(req: CompareHeatmapRequest) -> JSONResponse:
             'network_snapshot': _network_snapshot_to_report(snapshot),
             'mu': float(mu),
             'price_grid': price_grid,
-            'electricity_grid': elec_grid,
-            # matrix indexed [elec_row][price_col]
-            'probability_negative_net': matrix,
+            'electricity_grid': electricity_grid,
+            'probability_negative_net': probability_negative_net,
+            # Compatibility wrapper so clients can use `.grid.*`
+            'grid': {
+                'price_grid': price_grid,
+                'electricity_grid': electricity_grid,
+                'probability_negative_net': probability_negative_net,
+            },
         }
         return JSONResponse(payload)
     except (UnitParseError, AnalyticError, EconomicCompareError) as exc:
