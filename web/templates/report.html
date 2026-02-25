@@ -19,48 +19,37 @@
       </div>
     </div>
 
-     <!-- Shareable headline -->
-    <div class="alert alert-primary mb-3" role="alert">
-      <div class="fw-semibold">
-        At your current hashrate, there is a 50% chance you find your first block by
-        <span class="fw-bold">{{ "%.6g"|format(report.analytic.time_to_first_block_median_days) }} days</span>
-        (mean
-        <span class="fw-bold">{{ "%.6g"|format(report.analytic.time_to_first_block_mean_days) }} days</span>).
-      </div>
-      <div class="small text-body-secondary mt-1">
-        This is a variance model (Poisson). It’s not a profitability calculator.
+     <!-- Headline -->
+    <div class="card border-primary mb-3">
+      <div class="card-body">
+        <div class="d-flex flex-column gap-1">
+          <div class="fw-semibold">
+            50% chance of your first block by
+            <span class="fw-bold">{{ "%.6g"|format(report.analytic.time_to_first_block_median_days) }} days</span>
+            <span class="text-body-secondary fw-normal">
+              (mean {{ "%.6g"|format(report.analytic.time_to_first_block_mean_days) }} days)
+            </span>
+          </div>
+          <div class="small text-body-secondary">
+            Variance model (Poisson). Not a profitability calculator.
+          </div>
+        </div>
       </div>
     </div>
 
     <div class="card mb-3">
       <div class="card-body">
-        <div class="d-flex flex-column gap-2">
-
-          <div class="d-flex flex-wrap align-items-center gap-2">
-            <strong class="me-1">Share link:</strong>
-            <span class="share-box flex-grow-1">
-              <a href="/r/{{ token }}">/r/{{ token }}</a>
-            </span>
-            <button id="copy-share" type="button" class="btn btn-outline-secondary btn-sm">
-              Copy share link
-            </button>
-          </div>
-
-          <div class="d-flex flex-wrap align-items-center gap-2">
-            <strong class="me-1">JSON API:</strong>
-            <span class="share-box flex-grow-1">
-              <a href="{{ api_url }}">{{ api_url }}</a>
-            </span>
-            <button id="copy-api" type="button" class="btn btn-outline-secondary btn-sm">
-              Copy JSON API
-            </button>
-          </div>
-
-          <div class="mt-1 small text-body-secondary" id="copy-status"></div>
-
-          <div class="text-body-secondary small">
-            Snapshot frozen at: {{ report.network_snapshot.timestamp }}
-          </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <button id="copy-share" type="button" class="btn btn-outline-secondary btn-sm">
+            Copy share link
+          </button>
+          <button id="copy-api" type="button" class="btn btn-outline-secondary btn-sm">
+            Copy JSON API
+          </button>
+          <span id="copy-status" class="small text-body-secondary"></span>
+        </div>
+        <div class="text-body-secondary small mt-2">
+          Snapshot frozen at: {{ report.network_snapshot.timestamp }}
         </div>
       </div>
     </div>
@@ -68,6 +57,9 @@
     <!-- Inputs summary -->
     <div class="card mb-3">
       <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h2 class="h6 mb-0">Inputs</h2>
+        </div>
         <div class="row g-3">
           <div class="col-6 col-md-3">
             <div class="text-body-secondary small">Coin</div>
@@ -123,13 +115,6 @@
             </div>
           </div>
 
-          <div class="mt-2 text-body-secondary small">
-            50% probability of first block by
-            <strong>{{ "%.6g"|format(report.analytic.time_to_first_block_median_days) }} days</strong>;
-            mean waiting time
-            <strong>{{ "%.6g"|format(report.analytic.time_to_first_block_mean_days) }} days</strong>.
-          </div>
-
           <div class="col-6 col-md-3">
             <div class="text-body-secondary small">T₁ p10 (days)</div>
             <div class="fw-semibold">{{ "%.6g"|format(report.analytic.time_to_first_block_days.p10) }}</div>
@@ -141,10 +126,6 @@
           <div class="col-6 col-md-3">
             <div class="text-body-secondary small">T₁ p90 (days)</div>
             <div class="fw-semibold">{{ "%.6g"|format(report.analytic.time_to_first_block_days.p90) }}</div>
-          </div>
-          <div class="col-6 col-md-3">
-            <div class="text-body-secondary small">T₁ mean (legacy)</div>
-            <div class="fw-semibold">{{ "%.6g"|format(report.analytic.time_to_first_block_days.mean) }}</div>
           </div>
         </div>
       </div>
@@ -241,43 +222,36 @@
 
 <script>
   (function () {
-    function setStatus(msg) {
-      const el = document.getElementById('copy-status');
-      if (!el) return;
-      el.textContent = msg || '';
-      if (msg) {
-        window.clearTimeout(window.__copyStatusTimer);
-        window.__copyStatusTimer = window.setTimeout(() => {
-          el.textContent = '';
-        }, 1500);
-      }
-    }
-
-    async function copyText(label, text) {
-      const value = String(text || '');
-      if (!value) return;
-      try {
-        await navigator.clipboard.writeText(value);
-        setStatus(`${label} copied.`);
-      } catch (e) {
-        // Fallback when Clipboard API is blocked (non-HTTPS, permissions, etc.)
-        window.prompt(`Copy this ${label}:`, value);
-        setStatus('');
-      }
-    }
-
     const shareBtn = document.getElementById('copy-share');
     const apiBtn = document.getElementById('copy-api');
-    if (shareBtn) {
+    const statusEl = document.getElementById('copy-status');
+
+    function setStatus(msg) {
+      if (!statusEl) return;
+      statusEl.textContent = msg || '';
+      if (msg) setTimeout(() => { statusEl.textContent = ''; }, 1500);
+    }
+
+     async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        setStatus('Copied.');
+      } catch (e) {
+        window.prompt('Copy:', text);
+      }
+    }
+
+   if (shareBtn) {
       shareBtn.addEventListener('click', async () => {
-        const url = `${window.location.origin}/r/{{ token }}`;
-        await copyText('Share link', url);
+        // Copy exactly what the viewer is looking at
+        await copyText(window.location.href);
       });
     }
+
     if (apiBtn) {
       apiBtn.addEventListener('click', async () => {
-        const url = `${window.location.origin}{{ api_url }}`;
-        await copyText('JSON API', url);
+        const apiUrl = `${window.location.origin}{{ api_url }}`;
+        await copyText(apiUrl);
       });
     }
 
