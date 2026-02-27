@@ -352,6 +352,9 @@
     const formData = new FormData(form);
     const payload = Object.fromEntries(formData.entries());
 
+    const heatmapSteps = Number(payload.heatmap_steps || 15);
+    delete payload.heatmap_steps;
+
     payload.coin = String(payload.coin || '').trim().toLowerCase();
     payload.hashrate = normalizeHashrate(payload.hashrate);
 
@@ -362,7 +365,7 @@
     payload.pool_fee_pct = normalizePoolFee(payload.pool_fee_pct);
     payload.mc_runs = Number(payload.mc_runs);
 
-    return payload;
+    return { payload, heatmapSteps };
   }
 
   function colorForProb(p) {
@@ -656,7 +659,7 @@
   }
 
   async function compute() {
-    const payload = toPayload();
+    const { payload, heatmapSteps } = toPayload();
 
     // Clear prior UI state (don’t hide failures)
     setComputeAlert(null, null);
@@ -694,8 +697,8 @@
           electricity_cost_per_kwh: payload.electricity_cost_per_kwh,
           asic_power_watts: payload.asic_power_watts,
           pool_fee_pct: payload.pool_fee_pct,
-          price_steps: Number(form.heatmap_steps?.value || 15),
-          elec_steps: Number(form.heatmap_steps?.value || 15)
+          price_steps: heatmapSteps,
+          elec_steps: heatmapSteps
         })
       });
       if (!hmRes.ok) {
@@ -722,7 +725,7 @@
   }
 
   async function share() {
-    const payload = toPayload();
+    const { payload } = toPayload();
 
     const res = await fetch('/api/compare/share', {
       method: 'POST',
