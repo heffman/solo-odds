@@ -412,7 +412,8 @@
         div.style.background = colorForProb(p);
 
         // Mark current input cell (nearest index)
-        if (x === curX && y === curY) {
+        const visualY = elec.length - 1 - y;
+        if (x === curX && visualY === curY) {
           div.classList.add('current');
         }
 
