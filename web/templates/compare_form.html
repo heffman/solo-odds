@@ -313,6 +313,7 @@
 
     for (const [key, rawVal] of qs.entries()) {
       if (!allowed.has(key)) continue;
+      if (key === 'autorun') continue; // not a form field
       const el = form.elements.namedItem(key);
       if (!el) continue;
 
