@@ -11,6 +11,9 @@
   <meta property="og:title" content="Solo vs Pool Mining: A Risk-First Way to Decide" />
   <meta property="og:description" content="Use P(0 blocks), P(loss), and regret probability to compare solo vs pool mining. Includes shareable scenarios." />
   <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://solo-odds.hefftools.dev/blog/solo-vs-pool-risk-first/" />
+  <meta property="og:image" content="https://solo-odds.hefftools.dev/static/og/solo-vs-pool-risk-first.png" />
+  <meta property="og:image:alt" content="Solo vs Pool Mining: Risk-first comparison using P(0 blocks), P(loss), and regret probability" />
 
   <link rel="canonical" href="https://solo-odds.hefftools.dev/blog/solo-vs-pool-risk-first/" />
 
@@ -72,9 +75,9 @@
         <div class="col-12 col-md-6"><a href="#why-ev-isnt-enough">1) Why EV isn’t enough</a></div>
         <div class="col-12 col-md-6"><a href="#three-metrics">2) Three metrics that matter</a></div>
         <div class="col-12 col-md-6"><a href="#how-to-read">3) How to read the results</a></div>
-        <div class="col-12 col-md-6"><a href="#shareable-scenarios">4) Shareable scenarios</a></div>
+        <div class="col-12 col-md-6"><a href="#shareable-scenarios">4) Canonical share scenarios</a></div>
         <div class="col-12 col-md-6"><a href="#how-this-tool-models">5) How the tool models it</a></div>
-        <div class="col-12 col-md-6"><a href="#seo-push">6) How to start the SEO push</a></div>
+        <div class="col-12 col-md-6"><a href="#who-should-solo">6) Who should solo mine?</a></div>
       </div>
     </div>
 
@@ -85,7 +88,7 @@
     </p>
 
     <div class="callout my-3">
-      <p class="mb-1 fw-semibold">A practical way to think about it:</p>
+      <p class="mb-1 fw-semibold">A practical way to think about it</p>
       <p class="mb-0 text-body-secondary">
         If you cannot tolerate long dry spells, you care more about <strong>distribution</strong> than <strong>EV</strong>.
         Pools are basically “variance insurance” (for a fee).
@@ -145,13 +148,13 @@
       </div>
     </div>
 
-        <h2 class="h5 mt-4" id="shareable-scenarios">4) Canonical share scenarios</h2>
+    <h2 class="h5 mt-4" id="shareable-scenarios">4) Canonical share scenarios</h2>
     <p class="text-body-secondary">
-      These are the three “anchor” scenarios I’ll reference elsewhere (Reddit replies, future posts, etc.).
-      Each one links to the Compare form with inputs prefilled. Run it, then click <strong>Copy share link</strong>.
+      These are three “anchor” scenarios I’ll reference elsewhere (e.g., Reddit replies and future posts).
+      Each one links to the Compare form with inputs prefilled and set to autorun. After it computes, click <strong>Copy share link</strong>.
       <span class="d-block mt-1">
-        Note: I don’t hardcode tokens here because your network snapshot updates over time; the share link you generate
-        freezes the snapshot into the token.
+        I don’t hardcode tokens here because the network snapshot updates over time. The share link you generate
+        freezes the snapshot inside the token, so people can compare the same assumptions.
       </span>
     </p>
 
@@ -201,6 +204,10 @@
   "pool_fee_pct": 0.01
 }</code></pre>
           </div>
+
+          <div class="small text-body-secondary mt-2">
+            Note: the 21W / 9.4TH combo is a “low-power / hobby ASIC class” example.
+          </div>
         </div>
       </div>
 
@@ -233,7 +240,7 @@
 
           <hr>
           <div class="small text-body-secondary mb-2">
-            Use this to show the heatmap shift: loss probability can dominate even if you “like variance.”
+            Use this to show how price can dominate the outcome: losses can become the typical result even if you accept variance.
           </div>
 
           <div class="small">
@@ -280,7 +287,7 @@
 
           <hr>
           <div class="small text-body-secondary mb-2">
-            Use this to show electricity sensitivity: <span class="kbd">P(net &lt; 0)</span> can go to ~1.0 fast.
+            Use this to show electricity sensitivity: <span class="kbd">P(net &lt; 0)</span> can go to ~1.0 quickly.
           </div>
 
           <div class="small">
@@ -303,8 +310,8 @@
     <div class="alert alert-info mt-4">
       <div class="fw-semibold">How to generate a stable share link</div>
       <ol class="mb-0 small">
-        <li>Click <strong>Open in Compare</strong> on one of the cards.</li>
-        <li>Click <strong>Compare</strong> to compute results.</li>
+        <li>Click <strong>Open in Compare</strong> on one of the cards (it will autorun).</li>
+        <li>Review <strong>P(0 blocks)</strong>, <strong>P(loss)</strong>, and <strong>P(solo underperforms pool)</strong>.</li>
         <li>Click <strong>Copy share link</strong>.</li>
         <li>Post that share link — it freezes the network snapshot inside the token.</li>
       </ol>
@@ -321,17 +328,17 @@
       Details are documented on the <a href="/methods">Methods</a> page.
     </p>
 
-    <h2 class="h5 mt-4" id="seo-push">6) How to start the SEO push (practical)</h2>
+    <h2 class="h5 mt-4" id="who-should-solo">6) Who should solo mine?</h2>
     <div class="card p-3 mb-4">
-      <div class="fw-semibold mb-2">Do these 6 things in order</div>
-      <ol class="mb-0">
-        <li><strong>Add this page under /blog/</strong> and link it from your homepage footer.</li>
-        <li><strong>Add 2 more posts</strong>: “How to interpret P(0 blocks)” and “Why pool fee is variance insurance”.</li>
-        <li><strong>Interlink</strong>: each post links to /compare and to the other posts.</li>
-        <li><strong>Submit in Google Search Console</strong> (request indexing for each post).</li>
-        <li><strong>Post once to Reddit</strong> as a discussion prompt (not marketing).</li>
-        <li><strong>Track</strong>: impressions and queries weekly; write posts targeting actual queries you see.</li>
-      </ol>
+      <p class="mb-2">
+        Solo mining makes sense when you explicitly want a lottery-shaped distribution and can tolerate long dry spells.
+        If you need stable outcomes, you’re buying the wrong thing.
+      </p>
+      <ul class="mb-0">
+        <li><strong>Solo is a fit</strong> if you accept high <strong>P(0 blocks)</strong> and you’re comfortable with “rare big wins.”</li>
+        <li><strong>Pool is a fit</strong> if you want smoother payouts and you treat the fee as variance insurance.</li>
+        <li>If your <strong>P(0 blocks)</strong> is above ~70–85% over your horizon, solo will feel like “nothing happens” most of the time.</li>
+      </ul>
     </div>
 
     <div class="text-body-secondary small">

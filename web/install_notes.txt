@@ -61,3 +61,17 @@ jq -r 'select(.event=="report_view") | .meta.ref // ""' var/metrics.jsonl | sort
 If you don’t have jq installed:
 
 grep '"event":"report_view"' var/metrics.jsonl | sed -n 's/.*"ref":"\([^"]*\)".*/\1/p' | sort | uniq -c | 
+
+
+<h2 class="h5 mt-4" id="seo-push">6) How to start the SEO push (practical)</h2>
+    <div class="card p-3 mb-4">
+      <div class="fw-semibold mb-2">Do these 6 things in order</div>
+      <ol class="mb-0">
+        <li><strong>Add this page under /blog/</strong> and link it from your homepage footer.</li>
+        <li><strong>Add 2 more posts</strong>: “How to interpret P(0 blocks)” and “Why pool fee is variance insurance”.</li>
+        <li><strong>Interlink</strong>: each post links to /compare and to the other posts.</li>
+        <li><strong>Submit in Google Search Console</strong> (request indexing for each post).</li>
+        <li><strong>Post once to Reddit</strong> as a discussion prompt (not marketing).</li>
+        <li><strong>Track</strong>: impressions and queries weekly; write posts targeting actual queries you see.</li>
+      </ol>
+    </div>
