@@ -291,6 +291,57 @@
   let deltaChart = null;
   let lastData = null;
 
+  function applyQueryParamsToForm() {
+    if (!form) return;
+    const qs = new URLSearchParams(window.location.search);
+    if (!qs || [...qs.keys()].length === 0) return;
+
+    // Whitelist: only accept known fields
+    const allowed = new Set([
+      'coin',
+      'hashrate',
+      'horizon_days',
+      'coin_price_usd',
+      'electricity_cost_per_kwh',
+      'asic_power_watts',
+      'pool_fee_pct',
+      'mc_runs',
+      'heatmap_steps',
+      'autorun'
+    ]);
+
+
+    for (const [key, rawVal] of qs.entries()) {
+      if (!allowed.has(key)) continue;
+      const el = form.elements.namedItem(key);
+      if (!el) continue;
+
+      const val = String(rawVal ?? '');
+
+      // Basic normalization for UX; backend normalization still happens in toPayload().
+      if (key === 'coin') {
+        el.value = val.trim().toLowerCase();
+      } else if (key === 'hashrate') {
+        el.value = val.trim().replace(/\s+/g, '').toUpperCase();
+      } else {
+        el.value = val;
+      }
+    }
+
+    // URL had inputs, so ensure share link is disabled until user computes.
+    if (shareBtn) shareBtn.disabled = true;
+
+    // Optional: clear any stale results if user navigates back with params
+    if (resultsEl) resultsEl.style.display = 'none';
+
+    if (qs.get('autorun') === '1') {
+     setTimeout(() => { form.requestSubmit(); }, 0);
+    }
+  }
+
+  // Apply query params once on load
+  applyQueryParamsToForm();
+
   function setComputeAlert(kind, html) {
     if (!computeAlertWrap) return;
     if (!html) {
