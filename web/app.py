@@ -687,6 +687,11 @@ def methods(request: Request) -> HTMLResponse:
     return templates.TemplateResponse('methods.html', {'request': request})
 
 
+@app.get('/blog/solo-vs-pool-risk-first', response_class=HTMLResponse)
+def methods(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse('solo-vs-pool-risk-first.html', {'request': request})
+
+
 @app.get('/compare', response_class=HTMLResponse)
 def compare_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(

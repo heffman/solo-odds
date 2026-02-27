@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Solo vs Pool Mining: A Risk-First Way to Decide (with shareable scenarios)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta name="description" content="A risk-first way to choose solo vs pool mining using probability: P(0 blocks), P(loss), and P(solo underperforms pool). Includes shareable example scenarios." />
+  <meta name="robots" content="index,follow">
+
+  <meta property="og:title" content="Solo vs Pool Mining: A Risk-First Way to Decide" />
+  <meta property="og:description" content="Use P(0 blocks), P(loss), and regret probability to compare solo vs pool mining. Includes shareable scenarios." />
+  <meta property="og:type" content="article" />
+
+  <link rel="canonical" href="https://solo-odds.hefftools.dev/blog/solo-vs-pool-risk-first/" />
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/site.css?v=2.1">
+
+  <style>
+    .post-wrap { max-width: 920px; margin: 0 auto; }
+    .lede { font-size: 1.05rem; }
+    .callout { border-left: 4px solid rgba(13,110,253,0.65); padding-left: 1rem; }
+    .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .95em; }
+    .scenario-card .small-muted { color: #6c757d; }
+    .toc a { text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .badge-soft { background: rgba(13,110,253,0.10); color: rgba(13,110,253,0.95); border: 1px solid rgba(13,110,253,0.12); }
+    code { color: inherit; }
+  </style>
+</head>
+
+<body class="bg-body">
+  <div class="container container-narrow py-4 post-wrap">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <div class="text-body-secondary small">solo-odds.hefftools.dev</div>
+        <h1 class="h3 mb-0">Solo vs Pool Mining: A Risk-First Way to Decide</h1>
+      </div>
+      <div class="d-flex gap-3">
+        <a href="/" class="link-secondary">Solo odds</a>
+        <a href="/compare" class="link-secondary">Compare</a>
+        <a href="/methods" class="link-secondary">Methods</a>
+      </div>
+    </div>
+
+    <div class="text-body-secondary small mb-3">
+      Updated <time datetime="2026-02-26">Feb 26, 2026</time>
+      <span class="mx-2">•</span>
+      <span class="badge rounded-pill badge-soft">risk model</span>
+      <span class="badge rounded-pill badge-soft">solo mining</span>
+      <span class="badge rounded-pill badge-soft">pool mining</span>
+    </div>
+
+    <div class="card p-3 mb-4">
+      <p class="lede mb-2">
+        Most “solo vs pool” discussions get stuck on expected value. That’s fine if you’re a fund.
+        If you’re a person with a single miner, the real question is variance:
+        <strong>what are the odds you get nothing</strong>, and how often does solo end worse than pool over your horizon?
+      </p>
+      <p class="mb-0 text-body-secondary">
+        This post gives a simple decision framework using three numbers:
+        <strong>P(0 blocks)</strong>, <strong>P(loss)</strong>, and <strong>regret probability</strong>
+        (P(solo underperforms pool)).
+      </p>
+    </div>
+
+    <div class="card p-3 mb-4 toc">
+      <div class="fw-semibold mb-2">Contents</div>
+      <div class="row g-2">
+        <div class="col-12 col-md-6"><a href="#why-ev-isnt-enough">1) Why EV isn’t enough</a></div>
+        <div class="col-12 col-md-6"><a href="#three-metrics">2) Three metrics that matter</a></div>
+        <div class="col-12 col-md-6"><a href="#how-to-read">3) How to read the results</a></div>
+        <div class="col-12 col-md-6"><a href="#shareable-scenarios">4) Shareable scenarios</a></div>
+        <div class="col-12 col-md-6"><a href="#how-this-tool-models">5) How the tool models it</a></div>
+        <div class="col-12 col-md-6"><a href="#seo-push">6) How to start the SEO push</a></div>
+      </div>
+    </div>
+
+    <h2 class="h5 mt-4" id="why-ev-isnt-enough">1) Why EV isn’t enough</h2>
+    <p>
+      If your expected value is positive but <strong>P(0 blocks)</strong> is high, solo mining behaves like a lottery:
+      most outcomes are “no blocks,” plus rare large wins. Pools turn that into something smoother.
+    </p>
+
+    <div class="callout my-3">
+      <p class="mb-1 fw-semibold">A practical way to think about it:</p>
+      <p class="mb-0 text-body-secondary">
+        If you cannot tolerate long dry spells, you care more about <strong>distribution</strong> than <strong>EV</strong>.
+        Pools are basically “variance insurance” (for a fee).
+      </p>
+    </div>
+
+    <h2 class="h5 mt-4" id="three-metrics">2) Three metrics that matter</h2>
+    <div class="row g-3">
+      <div class="col-12 col-md-4">
+        <div class="card p-3 h-100">
+          <div class="fw-semibold">P(0 blocks)</div>
+          <div class="text-body-secondary small mb-2">“How often do I get nothing?”</div>
+          <p class="mb-0">
+            If this is high, solo is a lottery profile. Your median outcome will look like
+            electricity burn (and maybe hardware depreciation if you count it).
+          </p>
+        </div>
+      </div>
+      <div class="col-12 col-md-4">
+        <div class="card p-3 h-100">
+          <div class="fw-semibold">P(loss)</div>
+          <div class="text-body-secondary small mb-2">“How often am I net negative?”</div>
+          <p class="mb-0">
+            This includes the case where you hit zero blocks (often the dominant loss outcome),
+            plus cases where you get a block but still lose money due to cost inputs.
+          </p>
+        </div>
+      </div>
+      <div class="col-12 col-md-4">
+        <div class="card p-3 h-100">
+          <div class="fw-semibold">Regret probability</div>
+          <div class="text-body-secondary small mb-2">P(solo underperforms pool)</div>
+          <p class="mb-0">
+            This is the decision signal: the probability that solo ends the horizon with less net USD than pool
+            using the same inputs.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="h5 mt-4" id="how-to-read">3) How to read the results</h2>
+    <p>
+      In the <a href="/compare">Compare</a> page, you’ll see:
+    </p>
+    <ul>
+      <li><strong>Decision signal</strong>: regret probability</li>
+      <li><strong>Expected value delta</strong>: Solo EV − Pool EV</li>
+      <li><strong>Histograms</strong>: what outcomes actually look like (not just EV)</li>
+      <li><strong>Heatmap</strong>: sensitivity of <span class="kbd">P(net &lt; 0)</span> vs price &amp; electricity</li>
+    </ul>
+
+    <div class="alert alert-warning">
+      <div class="fw-semibold">Rule of thumb</div>
+      <div class="small">
+        If <strong>P(0 blocks)</strong> is high, solo behaves like a lottery even if EV is positive.
+        Pools reduce variance but cost a fee.
+      </div>
+    </div>
+
+    <h2 class="h5 mt-4" id="shareable-scenarios">4) Shareable scenarios (copy/paste)</h2>
+    <p class="text-body-secondary">
+      These are meant to be shared. Plug them into the Compare form, generate a share link, and post the result.
+      (I’m not hardcoding tokens here because your snapshot data changes over time.)
+    </p>
+
+    <div class="row g-3 scenario-card">
+      <div class="col-12 col-md-4">
+        <div class="card p-3 h-100">
+          <div class="d-flex justify-content-between align-items-baseline">
+            <div class="fw-semibold">Scenario A</div>
+            <span class="badge rounded-pill text-bg-secondary">lottery-ish</span>
+          </div>
+          <div class="small-muted mt-1">“Low power, home miner, 1 year horizon”</div>
+          <hr>
+          <div class="small">
+            <div><span class="text-body-secondary">Coin:</span> BCH</div>
+            <div><span class="text-body-secondary">Hashrate:</span> 9.4TH</div>
+            <div><span class="text-body-secondary">Horizon:</span> 365 days</div>
+            <div><span class="text-body-secondary">Price:</span> $250</div>
+            <div><span class="text-body-secondary">Elec:</span> $0.09/kWh</div>
+            <div><span class="text-body-secondary">Power:</span> 21W</div>
+            <div><span class="text-body-secondary">Pool fee:</span> 1%</div>
+          </div>
+          <hr>
+          <div class="small text-body-secondary">
+            Purpose: show the “0 blocks dominates” distribution profile and regret signal.
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-4">
+        <div class="card p-3 h-100">
+          <div class="d-flex justify-content-between align-items-baseline">
+            <div class="fw-semibold">Scenario B</div>
+            <span class="badge rounded-pill text-bg-secondary">price crash</span>
+          </div>
+          <div class="small-muted mt-1">“Same miner, price drops hard”</div>
+          <hr>
+          <div class="small">
+            <div><span class="text-body-secondary">Coin:</span> BCH</div>
+            <div><span class="text-body-secondary">Hashrate:</span> 9.4TH</div>
+            <div><span class="text-body-secondary">Horizon:</span> 365 days</div>
+            <div><span class="text-body-secondary">Price:</span> $100</div>
+            <div><span class="text-body-secondary">Elec:</span> $0.09/kWh</div>
+            <div><span class="text-body-secondary">Power:</span> 21W</div>
+            <div><span class="text-body-secondary">Pool fee:</span> 1%</div>
+          </div>
+          <hr>
+          <div class="small text-body-secondary">
+            Purpose: show how the heatmap shifts; losses dominate even if variance is “fun.”
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-4">
+        <div class="card p-3 h-100">
+          <div class="d-flex justify-content-between align-items-baseline">
+            <div class="fw-semibold">Scenario C</div>
+            <span class="badge rounded-pill text-bg-secondary">high electricity</span>
+          </div>
+          <div class="small-muted mt-1">“Same miner, expensive electricity”</div>
+          <hr>
+          <div class="small">
+            <div><span class="text-body-secondary">Coin:</span> BCH</div>
+            <div><span class="text-body-secondary">Hashrate:</span> 9.4TH</div>
+            <div><span class="text-body-secondary">Horizon:</span> 365 days</div>
+            <div><span class="text-body-secondary">Price:</span> $250</div>
+            <div><span class="text-body-secondary">Elec:</span> $0.20/kWh</div>
+            <div><span class="text-body-secondary">Power:</span> 21W</div>
+            <div><span class="text-body-secondary">Pool fee:</span> 1%</div>
+          </div>
+          <hr>
+          <div class="small text-body-secondary">
+            Purpose: show sensitivity to electricity; “P(net&lt;0)” can go to ~1.0 fast.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-info mt-4">
+      <div class="fw-semibold">How to share a scenario</div>
+      <ol class="mb-0 small">
+        <li>Go to <a href="/compare">Compare</a></li>
+        <li>Enter inputs from a scenario card</li>
+        <li>Click <strong>Compare</strong></li>
+        <li>Click <strong>Copy share link</strong></li>
+      </ol>
+    </div>
+
+    <h2 class="h5 mt-4" id="how-this-tool-models">5) How the tool models it</h2>
+    <p>
+      This tool models solo blocks as a Poisson process over the chosen horizon.
+      That gives you a distribution over block counts (0, 1, 2, …).
+      Pool is treated as expected value (deterministic) for now.
+    </p>
+    <p class="text-body-secondary">
+      The network snapshot is frozen into the share token so results are stable and comparable when shared.
+      Details are documented on the <a href="/methods">Methods</a> page.
+    </p>
+
+    <h2 class="h5 mt-4" id="seo-push">6) How to start the SEO push (practical)</h2>
+    <div class="card p-3 mb-4">
+      <div class="fw-semibold mb-2">Do these 6 things in order</div>
+      <ol class="mb-0">
+        <li><strong>Add this page under /blog/</strong> and link it from your homepage footer.</li>
+        <li><strong>Add 2 more posts</strong>: “How to interpret P(0 blocks)” and “Why pool fee is variance insurance”.</li>
+        <li><strong>Interlink</strong>: each post links to /compare and to the other posts.</li>
+        <li><strong>Submit in Google Search Console</strong> (request indexing for each post).</li>
+        <li><strong>Post once to Reddit</strong> as a discussion prompt (not marketing).</li>
+        <li><strong>Track</strong>: impressions and queries weekly; write posts targeting actual queries you see.</li>
+      </ol>
+    </div>
+
+    <div class="text-body-secondary small">
+      Built by a software engineer modeling mining risk with a discrete Poisson process.
+      No ROI hype — just distributions, assumptions, and shareable results.
+    </div>
+
+    <hr class="my-4">
+
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <a href="/compare" class="btn btn-primary">Try the Compare tool</a>
+      <a href="/" class="btn btn-outline-secondary">Generate solo odds report</a>
+    </div>
+
+  </div>
+</body>
+</html>
