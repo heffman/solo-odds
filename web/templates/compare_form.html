@@ -59,6 +59,7 @@
     <div class="card p-3 mb-4">
       <form id="compare-form">
         <div class="row g-3">
+          <div class="col-12" id="compute-alert-wrap" style="display:none;"></div>
 
           <div class="col-md-4">
             <label class="form-label">Coin</label>
@@ -119,6 +120,16 @@
               <label class="form-check-label" for="log-y">Log Y (tails)</label>
             </div>
             <div class="form-text">Useful when one bin dominates and tails are hard to see.</div>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Heatmap resolution</label>
+            <select name="heatmap_steps" class="form-select">
+              <option value="11">11 × 11 (fast)</option>
+              <option value="15" selected>15 × 15 (default)</option>
+              <option value="21">21 × 21 (detailed)</option>
+            </select>
+            <div class="form-text">Higher resolution is slower (more server work).</div>
           </div>
 
         </div>
@@ -261,6 +272,7 @@
   const logYToggle = document.getElementById('log-y');
   const heatmapEl = document.getElementById('heatmap');
   const heatmapStatus = document.getElementById('heatmap-status');
+  const computeAlertWrap = document.getElementById('compute-alert-wrap');
 
   const headlineEl = document.getElementById('headline');
   const headlineSubEl = document.getElementById('headline-sub');
@@ -273,6 +285,37 @@
   let soloChart = null;
   let deltaChart = null;
   let lastData = null;
+
+  function setComputeAlert(kind, html) {
+    if (!computeAlertWrap) return;
+    if (!html) {
+      computeAlertWrap.style.display = 'none';
+      computeAlertWrap.innerHTML = '';
+      return;
+    }
+    const cls = (kind === 'danger') ? 'alert-danger'
+      : (kind === 'warning') ? 'alert-warning'
+      : 'alert-info';
+    computeAlertWrap.innerHTML = `
+      <div class="alert ${cls} py-2 mb-0" role="alert">
+        ${html}
+      </div>
+    `;
+    computeAlertWrap.style.display = 'block';
+  }
+
+  async function safeReadErrorBody(res) {
+    try {
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (ct.includes('application/json')) {
+        const j = await res.json();
+        return JSON.stringify(j, null, 2);
+      }
+      return await res.text();
+    } catch (_) {
+      return '';
+    }
+  }
 
   function normalizeHashrate(s) {
     if (s == null) return '';
@@ -318,10 +361,10 @@
     payload.asic_power_watts = Number(payload.asic_power_watts);
     payload.pool_fee_pct = normalizePoolFee(payload.pool_fee_pct);
     payload.mc_runs = Number(payload.mc_runs);
+    payload.heatmap_steps = Number(payload.heatmap_steps || 15);
 
     return payload;
   }
-
 
   function colorForProb(p) {
     // Buckets (match legend)
@@ -616,6 +659,10 @@
   async function compute() {
     const payload = toPayload();
 
+    // Clear prior UI state (don’t hide failures)
+    setComputeAlert(null, null);
+    if (heatmapStatus) heatmapStatus.textContent = '';
+
     const res = await fetch('/api/v1/compare', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -623,12 +670,11 @@
     });
 
     if (!res.ok) {
-      let detail = '';
-      try {
-        const err = await res.json();
-        detail = JSON.stringify(err, null, 2);
-      } catch (_) {}
-      alert(`Error computing comparison. HTTP ${res.status}\n\n${detail}`);
+      const detail = await safeReadErrorBody(res);
+      const detailHtml = detail
+        ? `<details class="mt-2"><summary>Details</summary><pre class="small mb-0 mt-2">${detail}</pre></details>`
+        : '';
+      setComputeAlert('danger', `<span class="fw-semibold">Compare failed</span> (HTTP ${res.status}).${detailHtml}`);
       return;
     }
 
@@ -636,8 +682,8 @@
     render(data);
 
     // Heatmap (A): P(solo net < 0) over price x electricity
-    // Fire-and-forget UX: if it fails, don’t block primary results.
     try {
+      if (heatmapStatus) heatmapStatus.textContent = 'Loading heatmap...';
       const hmRes = await fetch('/api/v1/compare/heatmap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -648,17 +694,28 @@
           coin_price_usd: payload.coin_price_usd,
           electricity_cost_per_kwh: payload.electricity_cost_per_kwh,
           asic_power_watts: payload.asic_power_watts,
-          pool_fee_pct: payload.pool_fee_pct
+          pool_fee_pct: payload.pool_fee_pct,
+          price_steps: payload.heatmap_steps,
+          elec_steps: payload.heatmap_steps
         })
       });
-      if (hmRes.ok) {
+      if (!hmRes.ok) {
+        const detail = await safeReadErrorBody(hmRes);
+        const detailHtml = detail
+          ? ` <details class="mt-1"><summary>Details</summary><pre class="small mb-0 mt-1">${detail}</pre></details>`
+          : '';
+        if (heatmapStatus) heatmapStatus.innerHTML = `Heatmap failed (HTTP ${hmRes.status}).${detailHtml}`;
+      } else {
         const hm = await hmRes.json();
         if (hm && hm.grid) {
           renderHeatmap(hm.grid);
+          // renderHeatmap already sets heatmapStatus to the grid summary; leave it.
+        } else {
+          if (heatmapStatus) heatmapStatus.textContent = 'Heatmap returned no grid.';
         }
       }
     } catch (_) {
-      // ignore
+      if (heatmapStatus) heatmapStatus.textContent = 'Heatmap request failed (network error).';
     }
 
     shareBtn.disabled = false;
@@ -675,12 +732,11 @@
     });
 
     if (!res.ok) {
-      let detail = '';
-      try {
-        const err = await res.json();
-        detail = JSON.stringify(err, null, 2);
-      } catch (_) {}
-      alert(`Error creating share link. HTTP ${res.status}\n\n${detail}`);
+      const detail = await safeReadErrorBody(res);
+      const detailHtml = detail
+        ? `<details class="mt-2"><summary>Details</summary><pre class="small mb-0 mt-2">${detail}</pre></details>`
+        : '';
+      setComputeAlert('danger', `<span class="fw-semibold">Share failed</span> (HTTP ${res.status}).${detailHtml}`);
       return;
     }
 
@@ -734,6 +790,9 @@
       }
     });
   }
+
+  // Keep share link aligned with the latest computed inputs.
+  if (form && shareBtn) form.addEventListener('input', () => { shareBtn.disabled = true; });
 
 })();
 </script>
