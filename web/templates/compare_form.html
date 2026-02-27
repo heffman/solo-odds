@@ -376,7 +376,7 @@
     return '#f8d7da';              // red-ish
   }
 
-  function renderHeatmap(grid) {
+  function renderHeatmap(grid, curPriceUsd, curElecPerKwh) {
     if (!heatmapEl || !grid) return;
 
     // Backend schema:
@@ -398,9 +398,8 @@
 
     // Compute "current" index (nearest) from the form’s current inputs.
     // This avoids needing backend to return a current_index.
-    const payload = toPayload();
-    const curX = nearestIndex(prices, Number(payload.coin_price_usd));
-    const curY = nearestIndex(elec, Number(payload.electricity_cost_per_kwh));
+    const curX = nearestIndex(prices, Number(curPriceUsd));
+    const curY = nearestIndex(elec, Number(curElecPerKwh));
 
     // Build cells row-major: electricity rows top->bottom (we’ll render high->low so “higher elec” is visually higher)
     const rows = [];
@@ -711,7 +710,7 @@
       } else {
         const hm = await hmRes.json();
         if (hm && hm.grid) {
-          renderHeatmap(hm.grid);
+          renderHeatmap(hm.grid, payload.coin_price_usd, payload.electricity_cost_per_kwh);
           // renderHeatmap already sets heatmapStatus to the grid summary; leave it.
         } else {
           if (heatmapStatus) heatmapStatus.textContent = 'Heatmap returned no grid.';
