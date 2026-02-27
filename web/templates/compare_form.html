@@ -361,7 +361,6 @@
     payload.asic_power_watts = Number(payload.asic_power_watts);
     payload.pool_fee_pct = normalizePoolFee(payload.pool_fee_pct);
     payload.mc_runs = Number(payload.mc_runs);
-    payload.heatmap_steps = Number(payload.heatmap_steps || 15);
 
     return payload;
   }
@@ -695,8 +694,8 @@
           electricity_cost_per_kwh: payload.electricity_cost_per_kwh,
           asic_power_watts: payload.asic_power_watts,
           pool_fee_pct: payload.pool_fee_pct,
-          price_steps: payload.heatmap_steps,
-          elec_steps: payload.heatmap_steps
+          price_steps: Number(form.heatmap_steps?.value || 15),
+          elec_steps: Number(form.heatmap_steps?.value || 15)
         })
       });
       if (!hmRes.ok) {
